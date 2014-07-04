@@ -123,9 +123,6 @@
 
 (def whitespace #{\space \tab \formfeed})
 
-(def &whitespace
-  (&repeat (&char-if whitespace)))
-
 (def crlf #{\return \newline})
 
 (def &eol
@@ -141,6 +138,9 @@
 (def &line-continuation
   (&do &backslash &eol))
 
+(def &whitespace
+  (&repeat (&or (&char-if whitespace) &line-continuation)))
+
 (def &leading-whitespace-continued
   (&let
     [column &leading-whitespace-raw
@@ -155,14 +155,17 @@
 
 (defn &indent [column]
   (fn [[in [top :as is] out :as σ]]
-    (if (> column top)
-      [nil [in (conj is column) (conj out :indent)]]
-      (loop [[top & ris :as is] is
-             out out]
-        (cond
-         (= column top) [nil [in is out]]
-         (or (empty? ris) (> column top)) ((&error {:r "invalid dedentation"}) σ)
-         :else (recur ris (conj out :dedent)))))))
+    (let [pos (in-position in)
+          info [*file* pos pos]
+          tok+ #(conj % [%2 nil info])]
+      (if (> column top)
+        [nil [in (conj is column) (tok+ out :indent)]]
+        (loop [[top & ris :as is] is
+               out out]
+          (cond
+           (= column top) [nil [in is out]]
+           (or (empty? ris) (> column top)) ((&error {:r "invalid dedentation"}) σ)
+           :else (recur ris (tok+ out :dedent))))))))
 
 (def &comment-eol
   (&do (&optional (&do (&char= \#) (&repeat (&char-if-not crlf)))) &eol))
@@ -336,9 +339,17 @@
 (defn python-lexer [input]
   (first (&python (init-state input))))
 
-
-
 (comment
-  (python-lexer "def hello \"abcd\"\n  foo\\nbar\n     # comment\n  baz\ndef quux\n  ur\"x\"")
+  (defn test-python-lexer [input]
+    (try (python-lexer input) (catch clojure.lang.ExceptionInfo x (.data x))))
 
+  (test-python-lexer "
+def hello \"abcd\"
+  foo\\
+bar '1 2 3'
+     # comment
+  baz
+def quux
+  ur\"x\"")
+  (python-lexer "def hello abcd\n  foo\n  baz\ndef quux\n  ur\"x\\\"\"")
 );comment
