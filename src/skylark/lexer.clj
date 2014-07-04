@@ -6,7 +6,7 @@
 ;; See Python 2 Documentation: https://docs.python.org/2/reference/lexical_analysis.html
 
 ;; This lexer is written in monadic style.
-;; type State = InputStream×IndentStack×OutputStream
+;; type State = InputStream×OutputStream×IndentStack×DelimStack
 ;; monad PythonLexer α = State → α×State
 ;;
 ;; The output is a sequence of vector of the form: [type data info]
@@ -15,14 +15,15 @@
 ;; start and end position (each a vector [line column] counting from 1).
 
 ;; File information, if any, to include together with token position
-(def ^:dynamic *file* false)
+(def ^:dynamic *file* nil)
 
 (defn init-state [input]
-  [(delta/positioned-stream input {:line-offset 1 :column-offset 0}) '(0) ()])
+  [(delta/positioned-stream input {:line-offset 1 :column-offset 0}) () '(0) ()])
 
 (defn σ-in [σ] (σ 0))
-(defn σ-indent-stack [σ] (σ 1))
-(defn σ-out [σ] (σ 2))
+(defn σ-out [σ] (σ 1))
+(defn σ-indent-stack [σ] (σ 2))
+(defn σ-delim-stack [σ] (σ 3))
 
 (defn in-char [in] (let [[[x]] in] x))
 (defn in-position [in] (let [[[_ l c]] in] [l c]))
@@ -48,7 +49,7 @@
   ([]
      (&error {}))
   ([details]
-     (fn [[in _ _]]
+     (fn [[in]]
        (let [[l c] (in-position in)]
          (fail (conj details [:file *file*] [:line l] [:column c]))))))
 (def &fail (&error))
@@ -79,10 +80,8 @@
 (defn &position [σ] [(in-column (σ-in σ)) σ])
 (defn &column [σ] [(in-column (σ-in σ)) σ])
 (defn &indent-stack [σ] [(σ-indent-stack σ) σ])
-(defn &read-char [[in is out]] [(in-char in) [(rest in) is out]])
-(defn &emit [& α] (fn [[in is out]] [nil [in is (apply conj out α)]]))
-(defn &done? [σ] [(done? σ) σ])
-(defn &flush [[in is out]] [(reverse out) [in is ()]])
+(defn &read-char [[in out is ds]] [(in-char in) [(rest in) out is ds]])
+(defn &emit [& α] (fn [[in out is ds]] [nil [in (apply conj out α) is ds]]))
 (defn &neof [σ] ((if (done? σ) (&error {:r "unexpected EOF"}) &nil) σ))
 (defn &eof [σ] ((if (done? σ) &nil (&error {:r "expected EOF"})) σ))
 
@@ -106,7 +105,7 @@
   ([s start end]
      (if (< start end)
        (&bind (&char= (nth s start)) (fn [_] (&string= s (inc start) end)))
-       &nil)))
+       (&return s))))
 
 (defn &optional [m]
   (&or m &nil))
@@ -130,16 +129,26 @@
        (&char= \newline)
        &eof))
 
+(def &comment-eol
+  (&do (&optional (&do (&char= \#) (&repeat (&char-if-not crlf)))) &eol))
+
 (def &backslash (&char= \\))
 
 (def &leading-whitespace-raw
   (&do &whitespace &column))
 
+(def &implicit-line-continuation
+  (fn [[in out is ds :as σ]]
+    ((if (empty? ds) &fail &comment-eol) σ)))
+
 (def &line-continuation
-  (&do &backslash &eol))
+  (&or
+   &implicit-line-continuation
+   (&do &backslash &eol)))
 
 (def &whitespace
-  (&repeat (&or (&char-if whitespace) &line-continuation)))
+  (&repeat (&or (&char-if whitespace)
+                &line-continuation)))
 
 (def &leading-whitespace-continued
   (&let
@@ -154,21 +163,18 @@
     (+ col0 col1)))
 
 (defn &indent [column]
-  (fn [[in [top :as is] out :as σ]]
+  (fn [[in out [top :as is] ds :as σ]]
     (let [pos (in-position in)
           info [*file* pos pos]
           tok+ #(conj % [%2 nil info])]
       (if (> column top)
-        [nil [in (conj is column) (tok+ out :indent)]]
+        [nil [in (tok+ out :indent) (conj is column) ds]]
         (loop [[top & ris :as is] is
                out out]
           (cond
-           (= column top) [nil [in is out]]
+           (= column top) [nil [in out is ds]]
            (or (empty? ris) (> column top)) ((&error {:r "invalid dedentation"}) σ)
            :else (recur ris (tok+ out :dedent))))))))
-
-(def &comment-eol
-  (&do (&optional (&do (&char= \#) (&repeat (&char-if-not crlf)))) &eol))
 
 (defn char-range [first last]
   (map char (range (int first) (inc (int last)))))
@@ -180,11 +186,11 @@
 (def letters_digits (clojure.set/union letters_ digits))
 
 (def keywords
-  (let [l '[and as assert break class continue
+  (let [l '(and as assert break class continue
             def del elif else except exec
             finally for from global if import in is
             lambda not or pass print raise return try
-            while with yield]]
+            while with yield)]
     (into {} (map #(vector % (keyword %)) l))))
 
 (def &ident-or-keyword
@@ -197,7 +203,7 @@
          info [*file* start end]]
      (if-let [k (keywords s)]
        [k nil info]
-       [:ident s info]))))
+       [:id s info]))))
 
 (defn char-lower-case [c]
   (when c (char (java.lang.Character/toLowerCase (int c)))))
@@ -272,7 +278,7 @@
           \v (&return \u000b) ;; ASCII Vertical Tab (VT)
           \N (if (= ub \u) &named-char &fail)
           \x &latin1-char ;; \xhh Character with hex value hh
-          \u &unicode-char-16 ;; \uxxxx	Character with 16-bit hex value xxxx (Unicode only)
+          \u &unicode-char-16 ;; \uxxxx Character with 16-bit hex value xxxx (Unicode only)
           \U &unicode-char-32 ;; \Uxxxxxxxx Character with 32-bit hex value xxxxxxxx (Unicode only)
           (if (oct-digit c) &octal-char &fail)))]
    x))
@@ -302,10 +308,44 @@
     _ (&string-end-quote long? q)]
    [:string [s long? q ub r]]))
 
+(def &numeric-literal
+  (&error {:r "&numeric-literal is not implemented yet"}))
+
+(def delimiters
+  '("@" "," ":" "." "`" "=" ";"
+    "+=" "-=" "*=" "/=" "//" "%="
+    "&=" "|=" "^=" ">>=" "<<=" "**="))
+
+(def operators
+  '("+" "-" "*" "**" "/" "//" "%"
+    "<<" ">>" "&" "|" "^" "~"
+    "<=" ">=" "==" "!=" "<>" "<" ">"))
+
+(def delimiters-and-operators
+  ;; Order matters: prefixes must come afterwards, or we must use a better decision algorithm.
+  (sort-by count > (concat delimiters operators)))
+
+(def &delimiter-or-operator
+  (&let [s (&or* (map #(&string= %) delimiters-and-operators))]
+    [(keyword s) nil]))
+
+(def paren-closer {\( \) \[ \] \{ \}})
+
+(def &paren
+  (&or
+   (&bind (&char-if #{\( \[ \{})
+          #(fn [[in out is ds]]
+             [[% nil] [in out is (conj ds (paren-closer %))]]))
+   (&bind (&char-if #{\) \] \}})
+          #(fn [[in out is ds :as σ]]
+             [[% nil]
+              [in out is (if (= % (first ds)) (rest ds) ((&error {:r "Unmatched delimiter"}) σ))]]))))
+
 (def &token
   (&let
    [start &position
-    [type data] (&or &string-literal &ident-or-keyword)
+    [type data] (&or &string-literal &numeric-literal
+                     &paren &ident-or-keyword &delimiter-or-operator)
     end &position
       (&emit [type data [*file* start end]])]
    nil))
@@ -315,23 +355,23 @@
     [_ &neof
      column &leading-whitespace
      _ (&or &comment-eol ;; skip blank lines
-               (&do
-                (&indent column)
-                (&repeat (&do &token &whitespace))
-                &comment-eol
-                (&bind &position
-                          (fn [pos] (&emit [:newline nil [*file* pos pos]])))))]
+            (&do
+             (&indent column)
+             (&repeat (&do &token &whitespace))
+             &comment-eol
+             (&bind &position
+                       (fn [pos] (&emit [:newline nil [*file* pos pos]])))))]
     nil))
 
-(defn &finish [[in is out]]
+(defn &finish [[in out is ds :as σ]]
   (let [pos (in-position in)
-        info [*file* pos pos]]
+        info [*file* pos pos]
+        tok+ #(conj % [%2 nil info])]
     (loop [[top & ris] is
-           out out
-           dedent? false]
-      (if (> top 1) (recur ris (conj out [:dedent nil info]) true)
-          [(reverse (conj (if dedent? (conj out [:newline nil info]) out) [:endmarker nil info]))
-           [() '(1) ()]]))))
+           out out]
+      (if (> top 1) (recur ris (tok+ out :dedent))
+          [(reverse (tok+ out :endmarker))
+           [in () '(0) ds]]))))
 
 (def &python
   (&do (&repeat &logical-line) &eof &finish))
@@ -340,16 +380,21 @@
   (first (&python (init-state input))))
 
 (comment
-  (defn test-python-lexer [input]
+  (defn test-lex* [input]
     (try (python-lexer input) (catch clojure.lang.ExceptionInfo x (.data x))))
 
-  (test-python-lexer "
-def hello \"abcd\"
-  foo\\
-bar '1 2 3'
+  (defn test-lex [input]
+    (map (fn [[a b _]] [a b]) (test-lex* input)))
+
+  (test-lex* "
+def hello (world, *more)
+  print()
+  \"a b\" + 'c d' + \\
+  foo['abcd',
+bar, \"1 2 3\",
      # comment
-  baz
-def quux
-  ur\"x\"")
-  (python-lexer "def hello abcd\n  foo\n  baz\ndef quux\n  ur\"x\\\"\"")
+  baz]
+def quux ()
+  {ur\"x\": \"a\"}")
+  (try-python-lexer "def hello abcd\n  foo\n  baz\ndef quux\n  ur\"x\\\"\"")
 );comment
