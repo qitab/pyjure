@@ -1,6 +1,9 @@
 (ns skylark.lexer
   (:require [leijure.delta-position :as delta])
+  (:require [clojure.string :as str])
   (:use [clojure.algo.monads]))
+
+;; See Python 2 Documentation: https://docs.python.org/2/reference/lexical_analysis.html
 
 ;; This lexer is written in monadic style.
 ;; type State = InputStream×IndentStack×OutputStream
@@ -26,215 +29,298 @@
 (defn in-column [in] (let [[[_ l c]] in] c))
 (defn done? [σ] (empty? (σ-in σ)))
 
-(def $fail-msg "python lexer failure")
+(def fail-msg "python lexer failure")
 (defn fail ;; for richer throws, use slingshot ?
   ([] (fail {}))
-  ([details] (throw (clojure.lang.ExceptionInfo. $fail-msg details))))
+  ([details] (throw (clojure.lang.ExceptionInfo. fail-msg details))))
 
-(defn lex-result [α]
+;; Monadic lexer entities have the & prefix.
+
+(defn &return [α]
   (fn [σ] [α σ]))
-(defn lex-bind [Tα fTβ]
+(defn &bind [Tα fTβ]
   (fn [σ] (let [[α σ] (Tα σ)] ((fTβ α) σ))))
-(defmacro lex-do
-  ([] `(lex-result nil))
+(defmacro &do
+  ([] `(&return nil))
   ([m] m)
-  ([m & ms] `(lex-bind ~m (fn [~'_] (lex-do ~@ms)))))
-(defn lex-error
+  ([m & ms] `(&bind ~m (fn [~'_] (&do ~@ms)))))
+(defn &error
   ([]
-     (lex-error {}))
+     (&error {}))
   ([details]
      (fn [[in _ _]]
        (let [[l c] (in-position in)]
          (fail (conj details [:file *file*] [:line l] [:column c]))))))
-(defn lex-or* [lexes]
+(def &fail (&error))
+(defn try-lex [f σ]
+  (try (f σ)
+       (catch clojure.lang.ExceptionInfo x
+         (when-not (= (.getMessage x) fail-msg) (throw x)))))
+(defn &or* [ls]
   (fn [σ]
-    (loop [l lexes]
-      (if (empty? l) ((lex-error) σ)
-          (or (try ((first l) σ)
-                   (catch clojure.lang.ExceptionInfo x
-                     (when-not (= (.getMessage x) $fail-msg)
-                       (throw x))))
+    (loop [l ls]
+      (if (empty? l) ((&error) σ)
+          (or (try-lex (first l) σ)
               (recur (rest l)))))))
-(defn lex-or [& lexes]
-  (lex-or* lexes))
-(def lex-nil (lex-result nil))
+(defn &or [& ls] (&or* ls))
+(def &nil (&return nil))
+(defn &not [l] ;; lookahead that l does not appear here
+  (fn [σ] (if (try-lex l σ) (fail) [nil σ])))
 
 (defmonad pylex-m
-  [ m-result lex-result
-    m-bind lex-bind
-    m-zero (lex-error)
-    m-plus lex-or ])
+  [ m-result &return
+    m-bind &bind
+    m-zero (&error)
+    m-plus &or ])
 
-(defmacro dolex [& r] `(domonad pylex-m ~@r))
+(defmacro &let [& r] `(domonad pylex-m ~@r))
 
-(defn lex-peek-char [σ] [(in-char (σ-in σ)) σ])
-(defn lex-position [σ] [(in-column (σ-in σ)) σ])
-(defn lex-column [σ] [(in-column (σ-in σ)) σ])
-(defn lex-indent-stack [σ] [(σ-indent-stack σ) σ])
-(defn lex-read-char [[in is out]] [(in-char in) [(rest in) is out]])
-(defn lex-emit [& α] (fn [[in is out]] [nil [in is (apply conj out α)]]))
-(defn lex-done? [σ] [(done? σ) σ])
-(defn lex-flush [[in is out]] [(reverse out) [in is ()]])
-(defn lex-neof [σ] ((if (done? σ) (lex-error {:reason "unexpected EOF"}) lex-nil) σ))
-(defn lex-eof [σ] ((if (done? σ) lex-nil (lex-error {:reason "expected EOF"})) σ))
+(defn &peek-char [σ] [(in-char (σ-in σ)) σ])
+(defn &position [σ] [(in-column (σ-in σ)) σ])
+(defn &column [σ] [(in-column (σ-in σ)) σ])
+(defn &indent-stack [σ] [(σ-indent-stack σ) σ])
+(defn &read-char [[in is out]] [(in-char in) [(rest in) is out]])
+(defn &emit [& α] (fn [[in is out]] [nil [in is (apply conj out α)]]))
+(defn &done? [σ] [(done? σ) σ])
+(defn &flush [[in is out]] [(reverse out) [in is ()]])
+(defn &neof [σ] ((if (done? σ) (&error {:r "unexpected EOF"}) &nil) σ))
+(defn &eof [σ] ((if (done? σ) &nil (&error {:r "expected EOF"})) σ))
 
-(defn lex-char-if [pred]
-  (dolex
-    [x lex-read-char
+(defn &char-if [pred]
+  (&let
+    [x &read-char
      :if (not (and x (pred x)))
-     :then [_ (lex-error {:reason "expected char" :pred pred})]
-     :else [_ lex-nil]]
+     :then [_ (&error {:r "expected char" :pred pred})]
+     :else [_ &nil]]
     x))
 
-(defn lex-char-if-not [pred]
-  (lex-char-if #(not (pred %))))
+(defn &char-if-not [pred]
+  (&char-if #(not (pred %))))
 
-(defn lex-char= [c]
-  (lex-char-if #(= % c)))
+(defn &char= [c]
+  (&char-if #(= % c)))
 
-(defn lex-string=
-  ([s] (lex-string= s 0))
-  ([s start] (lex-string= s start (.length s)))
+(defn &string=
+  ([s] (&string= s 0))
+  ([s start] (&string= s start (.length s)))
   ([s start end]
      (if (< start end)
-       (lex-bind (lex-char= (nth s start)) (fn [_] (lex-string= s (inc start) end)))
-       lex-nil)))
+       (&bind (&char= (nth s start)) (fn [_] (&string= s (inc start) end)))
+       &nil)))
 
-(defn lex-maybe [m]
-  (lex-or m lex-nil))
+(defn &optional [m]
+  (&or m &nil))
 
-(defn lex-fold [m f a]
-  (lex-or (lex-bind m #(lex-fold m f (f a %))) (lex-result a)))
+(defn &fold [m f a]
+  (&or (&bind m #(&fold m f (f a %))) (&return a)))
 
-(defn lex-revlist [m]
-  (lex-fold m conj ()))
+(defn &chars
+  ([m] (&chars m nil))
+  ([m prefix] (&bind (&fold m conj (list prefix)) (fn [r] (&return (str/join (reverse r)))))))
 
-(defn lex-repeat [m]
-  (lex-fold m #(do %2) nil))
+(defn &repeat [m]
+  (&fold m (constantly nil) nil))
 
-(def $whitespace #{\space \tab})
-(def $crlf #{\return \newline})
+(def whitespace #{\space \tab \formfeed})
 
-(def lex-backslash (lex-char= \\))
+(def &whitespace
+  (&repeat (&char-if whitespace)))
 
-(def lex-eol
-  (lex-or (lex-do (lex-char= \return) (lex-maybe (lex-char= \newline)))
-          (lex-char= \newline)
-          lex-eof))
+(def crlf #{\return \newline})
 
-(def lex-whitespace
-  (lex-repeat (lex-char-if $whitespace)))
+(def &eol
+  (&or (&do (&char= \return) (&optional (&char= \newline)))
+       (&char= \newline)
+       &eof))
 
-(def lex-leading-whitespace-raw
-  (lex-do lex-whitespace lex-column))
+(def &backslash (&char= \\))
 
-(def lex-line-continuation
-  (lex-do lex-backslash lex-eol))
+(def &leading-whitespace-raw
+  (&do &whitespace &column))
 
-(def lex-leading-whitespace-continued
-  (dolex
-    [column lex-leading-whitespace-raw
-     _ lex-line-continuation]
+(def &line-continuation
+  (&do &backslash &eol))
+
+(def &leading-whitespace-continued
+  (&let
+    [column &leading-whitespace-raw
+     _ &line-continuation]
     column))
 
-(def lex-leading-whitespace
-  (dolex
-    [col0 (lex-fold lex-leading-whitespace-continued + 0)
-     col1 lex-leading-whitespace-raw]
+(def &leading-whitespace
+  (&let
+    [col0 (&fold &leading-whitespace-continued + 0)
+     col1 &leading-whitespace-raw]
     (+ col0 col1)))
 
-(def lex-line ;; XXX this function is test purposes only: put the rest of the line into a string.
-  (dolex
-    [text (lex-revlist (lex-char-if-not $crlf))
-     _ (lex-emit (clojure.string/join (reverse text)))
-     _ lex-eol]
-    nil))
-
-(defn lex-indent [column]
+(defn &indent [column]
   (fn [[in [top :as is] out :as σ]]
     (if (> column top)
-      [nil [in (conj is column) (conj out :INDENT)]]
+      [nil [in (conj is column) (conj out :indent)]]
       (loop [[top & ris :as is] is
              out out]
         (cond
          (= column top) [nil [in is out]]
-         (or (empty? ris) (> column top)) ((lex-error {:reason "invalid dedentation"}) σ)
-         :else (recur ris (conj out :DEDENT)))))))
+         (or (empty? ris) (> column top)) ((&error {:r "invalid dedentation"}) σ)
+         :else (recur ris (conj out :dedent)))))))
 
-(def lex-comment-eol
-  (lex-do (lex-maybe (lex-do (lex-char= \#) (lex-repeat (lex-char-if-not $crlf)))) lex-eol))
+(def &comment-eol
+  (&do (&optional (&do (&char= \#) (&repeat (&char-if-not crlf)))) &eol))
 
 (defn char-range [first last]
   (map char (range (int first) (inc (int last)))))
 
-(def $uppercase (into #{} (char-range \A \Z)))
-(def $lowercase (into #{} (char-range \a \z)))
-(def $digits (into #{} (char-range \0 \9)))
-(def $letters_ (clojure.set/union $uppercase $lowercase #{\_}))
-(def $letters_digits (clojure.set/union $letters_ $digits))
+(def uppercase (into #{} (char-range \A \Z)))
+(def lowercase (into #{} (char-range \a \z)))
+(def digits (into #{} (char-range \0 \9)))
+(def letters_ (clojure.set/union uppercase lowercase #{\_}))
+(def letters_digits (clojure.set/union letters_ digits))
 
-(def $keywords
-  (into #{} (map #(do [% (keyword %)])
-                 ["and" "as" "assert" "break" "class" "continue"
-                  "def" "del" "elif" "else" "except" "exec"
-                  "finally" "for" "from" "global" "if" "import" "in" "is"
-                  "lambda" "not" "or" "pass" "print" "raise" "return" "try"
-                  "while" "with" "yield"])))
+(def keywords
+  (let [l '[and as assert break class continue
+            def del elif else except exec
+            finally for from global if import in is
+            lambda not or pass print raise return try
+            while with yield]]
+    (into {} (map #(vector % (keyword %)) l))))
 
-(def lex-ident-or-keyword
-  (dolex
-   [start lex-position
-    c (lex-char-if $letters_)
-    l (lex-fold (lex-char-if $letters_digits) conj (list c))
-    end lex-position]
-   (let [s (clojure.string/join (reverse l))
+(def &ident-or-keyword
+  (&let
+   [start &position
+    c (&char-if letters_)
+    x (&chars (&char-if letters_digits) c)
+    end &position]
+   (let [s (symbol x)
          info [*file* start end]]
-     (if-let [k ($keywords s)]
+     (if-let [k (keywords s)]
        [k nil info]
        [:ident s info]))))
 
 (defn char-lower-case [c]
-  (char (java.lang.Character/toLowerCase (int c))))
+  (when c (char (java.lang.Character/toLowerCase (int c)))))
 
-(def lex-string-quote
-  (dolex
-   [q (lex-char-if #{\' \"})
-    lq (lex-maybe (lex-do (lex-char= q) (lex-char= q)))]
-   (if lq [true q] [false q])))
+(def char-name-chars (clojure.set/union uppercase #{\space}))
 
-(defn lex-string-contents [long? q ub r]
-  (lex-error {:reason "NOT IMPLEMENTED YET"}))
-
-(def lex-string-literal
-  (dolex
-   [start lex-position
-    ub (lex-maybe (lex-char-if #{\u \U \b \B}))
-    r (lex-maybe (lex-char-if #{\r \R}))
-    sq lex-string-quote
-    s (let [ub (char-lower-case ub)
-            r (char-lower-case r)
-            [long? q] sq]
-        (lex-string-contents long? q ub r))
-    end lex-position]
-   [:string s [*file* start end]]))
-
-(def lex-token
-  (lex-bind (lex-or lex-string-literal lex-ident-or-keyword) lex-emit))
-
-(def lex-logical-line
-  (dolex
-    [_ lex-neof
-     column lex-leading-whitespace
-     _ (lex-or lex-comment-eol ;; skip blank lines
-               (lex-do
-                (lex-indent column)
-                (lex-repeat (lex-do lex-token lex-whitespace))
-                lex-comment-eol
-                (lex-bind lex-position
-                          (fn [pos] (lex-emit [:newline nil [*file* pos pos]])))))]
+(def &named-char
+  (&let
+    [  (&char= \{)
+     name (&chars (&char-if char-name-chars))
+     _ (&char= \})
+       (&error {:r "Not implemented yet" :function '&named-char :name name})]
     nil))
 
-(defn lex-finish [[in is out]]
+(defmacro int<-digits [base & digits]
+  (reduce #(do `(+ (* ~% ~base) ~%2)) digits))
+
+(defn oct-digit [c]
+  (when-let [n (and c (int c))]
+    (when (<= (int \0) n (int \7)) (- n (int \0)))))
+
+(def &oct-digit (&let [c &read-char] (or (oct-digit c) (fail))))
+
+(def &octal-char
+  (&let [o0 &oct-digit o1 &oct-digit o2 &oct-digit]
+     (char (int<-digits 8 o0 o1 o2))))
+
+(defn dec-digit [c]
+  (when-let [n (and c (int c))]
+    (when (<= (int \0) n (int \9)) (- n (int \0)))))
+
+(def &dec-digit (&let [c &read-char] (or (dec-digit c) (fail))))
+
+(defn hex-digit [c]
+  (when-let [n (and c (int c))]
+    (cond (<= (int \0) n (int \9)) (- n (int \0))
+          (<= (int \a) n (int \f)) (+ n (- 10 (int \a)))
+          (<= (int \A) n (int \F)) (+ n (- 10 (int \A))))))
+
+(def &hex-digit (&let [c &read-char] (or (hex-digit c) (fail))))
+
+(def &latin1-char
+  (&let [x0 &hex-digit x1 &hex-digit]
+     (char (int<-digits 16 x0 x1))))
+
+(def &unicode-char-16
+  (&let [x0 &hex-digit x1 &hex-digit x2 &hex-digit x3 &hex-digit]
+     (char (int<-digits 16 x0 x1 x2 x3))))
+
+(def &unicode-char-32
+  (&let [x0 &hex-digit x1 &hex-digit x2 &hex-digit x3 &hex-digit
+         x4 &hex-digit x5 &hex-digit x6 &hex-digit x7 &hex-digit]
+     (char (int<-digits 16 x0 x1 x2 x3 x4 x5 x6 x7))))
+
+(defn &escape-seq [ub r]
+  (&let
+   [_ &backslash
+    c (&char-if (constantly true))
+    x (if r
+        (&return (str \\ c))
+        (condp = c ;; There is a bug with case in clojure 1.6.0 !!!
+          \newline &nil
+          \return (&do (&optional (&char= \newline)) &nil)
+          \' (&return c)
+          \" (&return c)
+          \a (&return \u0007) ;; ASCII Bell (BEL)
+          \b (&return \u0008) ;; ASCII Backspace (BS)
+          \f (&return \u000c) ;; ASCII Formfeed (FF)
+          \n (&return \u000a) ;; ASCII Linefeed (LF)
+          \r (&return \u000d) ;; ASCII Carriage Return (CR)
+          \t (&return \u0009) ;; ASCII Horizontal Tab (TAB)
+          \v (&return \u000b) ;; ASCII Vertical Tab (VT)
+          \N (if (= ub \u) &named-char &fail)
+          \x &latin1-char ;; \xhh Character with hex value hh
+          \u &unicode-char-16 ;; \uxxxx	Character with 16-bit hex value xxxx (Unicode only)
+          \U &unicode-char-32 ;; \Uxxxxxxxx Character with 32-bit hex value xxxxxxxx (Unicode only)
+          (if (oct-digit c) &octal-char &fail)))]
+   x))
+
+(defn &string-item [long? q ub r]
+  (&or
+   (&char-if-not (if long? #{q \\} #{q \\ \newline \return}))
+   (&escape-seq ub r)
+   (if long? (let [l (&char= q)] (&do l (&not (&do l l)) (&return q))) &fail)))
+
+(def &string-start-quote
+  (&let
+   [q (&char-if #{\' \"})
+    lq (&optional (&do (&char= q) (&char= q)))]
+   (if lq [true q] [false q])))
+
+(defn &string-end-quote [long? q]
+  (let [l (&char= q)]
+    (if long? (&do l l l) l)))
+
+(def &string-literal
+  (&let
+   [ub (&optional (&let [c (&char-if #{\u \U \b \B})] (char-lower-case c)))
+    r (&optional (&let [c (&char-if #{\r \R})] (char-lower-case c)))
+    [long? q] &string-start-quote
+    s (&chars (&string-item long? q ub r))
+    _ (&string-end-quote long? q)]
+   [:string [s long? q ub r]]))
+
+(def &token
+  (&let
+   [start &position
+    [type data] (&or &string-literal &ident-or-keyword)
+    end &position
+      (&emit [type data [*file* start end]])]
+   nil))
+
+(def &logical-line
+  (&let
+    [_ &neof
+     column &leading-whitespace
+     _ (&or &comment-eol ;; skip blank lines
+               (&do
+                (&indent column)
+                (&repeat (&do &token &whitespace))
+                &comment-eol
+                (&bind &position
+                          (fn [pos] (&emit [:newline nil [*file* pos pos]])))))]
+    nil))
+
+(defn &finish [[in is out]]
   (let [pos (in-position in)
         info [*file* pos pos]]
     (loop [[top & ris] is
@@ -244,8 +330,15 @@
           [(reverse (conj (if dedent? (conj out [:newline nil info]) out) [:endmarker nil info]))
            [() '(1) ()]]))))
 
-(def lex-python
-  (lex-do (lex-repeat lex-logical-line) lex-eof lex-finish))
+(def &python
+  (&do (&repeat &logical-line) &eof &finish))
 
 (defn python-lexer [input]
-  (first (lex-python (init-state input))))
+  (first (&python (init-state input))))
+
+
+
+(comment
+  (python-lexer "def hello \"abcd\"\n  foo\\nbar\n     # comment\n  baz\ndef quux\n  ur\"x\"")
+
+);comment

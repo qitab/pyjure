@@ -4,8 +4,11 @@
   :license {:name "Apache License 2.0"
             :url "http://www.apache.org/licenses/"}
   :dependencies [[org.clojure/clojure "1.6.0"]
-                 [org.clojure/math.numeric-tower "0.0.4"]
                  [org.clojure/algo.monads "0.1.4"]
+                 ;;[leijure/delta-position "0.1.0-SNAPSHOT"]
+
+                 ;;; Not using these, but experimenting...
+                 [org.clojure/math.numeric-tower "0.0.4"]
                  [org.clojure/core.match "0.2.2-SNAPSHOT"]
                  [matchure "0.10.1"]
                  ;;[nconc "1.0.0-SNAPSHOT"]
