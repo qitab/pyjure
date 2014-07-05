@@ -1,6 +1,8 @@
 (ns skylark.lexer
   (:require [leijure.delta-position :as delta])
   (:require [clojure.string :as str])
+  (:require [clojure.set :as set])
+  (:require [clojure.edn :as edn])
   (:use [clojure.algo.monads]))
 
 ;; See Python 2 Documentation: https://docs.python.org/2/reference/lexical_analysis.html
@@ -113,9 +115,14 @@
 (defn &fold [m f a]
   (&or (&bind m #(&fold m f (f a %))) (&return a)))
 
+(defn &conj [m a]
+  (&fold m conj a))
+
+(defn stringify [r] (str/join (reverse r)))
+
 (defn &chars
   ([m] (&chars m nil))
-  ([m prefix] (&bind (&fold m conj (list prefix)) (fn [r] (&return (str/join (reverse r)))))))
+  ([m prefix] (&let [s (&conj m prefix)] (stringify s))))
 
 (defn &repeat [m]
   (&fold m (constantly nil) nil))
@@ -182,8 +189,8 @@
 (def uppercase (into #{} (char-range \A \Z)))
 (def lowercase (into #{} (char-range \a \z)))
 (def digits (into #{} (char-range \0 \9)))
-(def letters_ (clojure.set/union uppercase lowercase #{\_}))
-(def letters_digits (clojure.set/union letters_ digits))
+(def letters_ (set/union uppercase lowercase #{\_}))
+(def letters_digits (set/union letters_ digits))
 
 (def keywords
   (let [l '(and as assert break class continue
@@ -197,7 +204,7 @@
   (&let
    [start &position
     c (&char-if letters_)
-    x (&chars (&char-if letters_digits) c)
+    x (&chars (&char-if letters_digits) (list c))
     end &position]
    (let [s (symbol x)
          info [*file* start end]]
@@ -208,7 +215,7 @@
 (defn char-lower-case [c]
   (when c (char (java.lang.Character/toLowerCase (int c)))))
 
-(def char-name-chars (clojure.set/union uppercase #{\space}))
+(def char-name-chars (set/union uppercase #{\space}))
 
 (def &named-char
   (&let
@@ -221,41 +228,41 @@
 (defmacro int<-digits [base & digits]
   (reduce #(do `(+ (* ~% ~base) ~%2)) digits))
 
-(defn oct-digit [c]
+(defn octal-digit [c]
   (when-let [n (and c (int c))]
     (when (<= (int \0) n (int \7)) (- n (int \0)))))
 
-(def &oct-digit (&let [c &read-char] (or (oct-digit c) (fail))))
+(def &octal-digit (&let [c &read-char] (or (octal-digit c) (fail))))
 
 (def &octal-char
-  (&let [o0 &oct-digit o1 &oct-digit o2 &oct-digit]
+  (&let [o0 &octal-digit o1 &octal-digit o2 &octal-digit]
      (char (int<-digits 8 o0 o1 o2))))
 
-(defn dec-digit [c]
+(defn decimal-digit [c]
   (when-let [n (and c (int c))]
     (when (<= (int \0) n (int \9)) (- n (int \0)))))
 
-(def &dec-digit (&let [c &read-char] (or (dec-digit c) (fail))))
+(def &decimal-digit (&let [c &read-char] (or (decimal-digit c) (fail))))
 
-(defn hex-digit [c]
+(defn hexadecimal-digit [c]
   (when-let [n (and c (int c))]
     (cond (<= (int \0) n (int \9)) (- n (int \0))
           (<= (int \a) n (int \f)) (+ n (- 10 (int \a)))
           (<= (int \A) n (int \F)) (+ n (- 10 (int \A))))))
 
-(def &hex-digit (&let [c &read-char] (or (hex-digit c) (fail))))
+(def &hexadecimal-digit (&let [c &read-char] (or (hexadecimal-digit c) (fail))))
 
 (def &latin1-char
-  (&let [x0 &hex-digit x1 &hex-digit]
+  (&let [x0 &hexadecimal-digit x1 &hexadecimal-digit]
      (char (int<-digits 16 x0 x1))))
 
 (def &unicode-char-16
-  (&let [x0 &hex-digit x1 &hex-digit x2 &hex-digit x3 &hex-digit]
+  (&let [x0 &hexadecimal-digit x1 &hexadecimal-digit x2 &hexadecimal-digit x3 &hexadecimal-digit]
      (char (int<-digits 16 x0 x1 x2 x3))))
 
 (def &unicode-char-32
-  (&let [x0 &hex-digit x1 &hex-digit x2 &hex-digit x3 &hex-digit
-         x4 &hex-digit x5 &hex-digit x6 &hex-digit x7 &hex-digit]
+  (&let [x0 &hexadecimal-digit x1 &hexadecimal-digit x2 &hexadecimal-digit x3 &hexadecimal-digit
+         x4 &hexadecimal-digit x5 &hexadecimal-digit x6 &hexadecimal-digit x7 &hexadecimal-digit]
      (char (int<-digits 16 x0 x1 x2 x3 x4 x5 x6 x7))))
 
 (defn &escape-seq [ub r]
@@ -280,7 +287,7 @@
           \x &latin1-char ;; \xhh Character with hex value hh
           \u &unicode-char-16 ;; \uxxxx Character with 16-bit hex value xxxx (Unicode only)
           \U &unicode-char-32 ;; \Uxxxxxxxx Character with 32-bit hex value xxxxxxxx (Unicode only)
-          (if (oct-digit c) &octal-char &fail)))]
+          (if (octal-digit c) &octal-char &fail)))]
    x))
 
 (defn &string-item [long? q ub r]
@@ -308,8 +315,57 @@
     _ (&string-end-quote long? q)]
    [:string [s long? q ub r]]))
 
+(defn &intpart [prefix]
+  (&conj (&char-if decimal-digit) prefix))
+
+(defn &fraction [prefix]
+  (&do (&char= \.) (&intpart (conj prefix \.))))
+
+(defn &exponent [prefix]
+  (&let [c (&char-if #{\e \E})
+         s (&optional (&char-if #{\+ \-}))
+         e (&intpart (list* s c prefix))]
+        e))
+
+(def &point-float
+  (&or (&bind (&optional (&intpart ())) &fraction)
+       (&let [i (&intpart ()) c (&char= \.)] (conj i c))))
+
+(def &exponent-float
+  (&bind (&or &point-float (&intpart ())) &exponent))
+
+(def &float-literal
+  (&let [x (&or &exponent-float &point-float)]
+     [:float (Double/parseDouble (stringify x))]))
+
+(def &decimal-integer
+  (&chars (&char-if decimal-digit) '("10r")))
+
+(def &octal-integer
+  (&chars (&char-if octal-digit) '("8r")))
+
+(def &hexadecimal-integer
+  (&chars (&char-if hexadecimal-digit) '("16r")))
+
+(def &binary-integer
+  (&chars (&char-if #{\0 \1}) '("2r")))
+
+(def &integer-literal
+  (&let [c &peek-char
+         i (cond
+            (= c \0) (&bind (&do &read-char &peek-char)
+                            (fn [c] (cond (#{\o \O} c) (&do &read-char &octal-integer)
+                                          (#{\x \X} c) (&do &read-char &hexadecimal-integer)
+                                          (#{\b \B} c) (&do &read-char &binary-integer)
+                                          (octal-digit c) &octal-integer
+                                          :else (&return "0"))))
+            (decimal-digit c) &decimal-integer
+            :else &fail)
+         _ (&optional (&char-if #{\l \L}))]
+    [:integer (edn/read-string i)]))
+
 (def &numeric-literal
-  (&error {:r "&numeric-literal is not implemented yet"}))
+  (&or &float-literal &integer-literal))
 
 (def delimiters
   '("@" "," ":" "." "`" "=" ";"
@@ -380,21 +436,23 @@
   (first (&python (init-state input))))
 
 (comment
-  (defn test-lex* [input]
-    (try (python-lexer input) (catch clojure.lang.ExceptionInfo x (.data x))))
+  (defn tryf [fun] (try (fun) (catch clojure.lang.ExceptionInfo x (.data x))))
 
-  (defn test-lex [input]
-    (map (fn [[a b _]] [a b]) (test-lex* input)))
+  (defn test-lex* [input] (tryf #(python-lexer input)))
 
-  (test-lex* "
+  (defn test-lex [input] (map (fn [[a b _]] [a b]) (test-lex* input)))
+
+  (defn test& [l input] (tryf #(l (init-state input))))
+
+  (test-lex "
 def hello (world, *more)
   print()
   \"a b\" + 'c d' + \\
   foo['abcd',
-bar, \"1 2 3\",
+bar, \"1 2 3\", 0, 1, [ 2, 03, 0b101, 0x7, 0o13, 0O15, 0X11 ],
+12.345e+67 1. 1.0 10e-1 .1e1 .01e+2
      # comment
   baz]
 def quux ()
   {ur\"x\": \"a\"}")
-  (try-python-lexer "def hello abcd\n  foo\n  baz\ndef quux\n  ur\"x\\\"\"")
 );comment
