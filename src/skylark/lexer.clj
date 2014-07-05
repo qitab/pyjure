@@ -1,5 +1,6 @@
 (ns skylark.lexer
   (:require [leijure.delta-position :as delta])
+  ;;(:require [skylark.semantics :as s])
   (:require [clojure.string :as str])
   (:require [clojure.set :as set])
   (:require [clojure.edn :as edn])
@@ -34,6 +35,7 @@
 
 (def fail-msg "python lexer failure")
 (defn fail ;; for richer throws, use slingshot ?
+  ;; For more efficient failing, we ought to use a monad that knows about continuations
   ([] (fail {}))
   ([details] (throw (clojure.lang.ExceptionInfo. fail-msg details))))
 
@@ -192,25 +194,24 @@
 (def letters_ (set/union uppercase lowercase #{\_}))
 (def letters_digits (set/union letters_ digits))
 
-(def keywords
+(def keywords ;; keywords in the Python sense, here symbols on the Clojure side.
   (let [l '(and as assert break class continue
             def del elif else except exec
             finally for from global if import in is
             lambda not or pass print raise return try
             while with yield)]
-    (into {} (map #(vector % (keyword %)) l))))
+    (into {} (map #(vector (str %) %) l))))
 
 (def &ident-or-keyword
   (&let
    [start &position
     c (&char-if letters_)
-    x (&chars (&char-if letters_digits) (list c))
+    s (&chars (&char-if letters_digits) (list c))
     end &position]
-   (let [s (symbol x)
-         info [*file* start end]]
+   (let [info [*file* start end]]
      (if-let [k (keywords s)]
-       [k nil info]
-       [:id s info]))))
+       [k nil info] ;; skylark keywords as clojure symbols
+       [:id s info])))) ;; identifiers as strings (for now... can be interned later)
 
 (defn char-lower-case [c]
   (when c (char (java.lang.Character/toLowerCase (int c)))))
@@ -369,23 +370,31 @@
          j (&optional (&char-if #{\j \J}))]
      (if j [:imaginary n] n)))
 
-(def delimiters
-  '("@" "," ":" "." "`" "=" ";"
-    "+=" "-=" "*=" "/=" "//" "%="
-    "&=" "|=" "^=" ">>=" "<<=" "**="))
+(def delimiters ;; Should we prefix them all with s/ ? Also operators, keywords...
+  '(("@" at) ("," comma) (":" colon) ("." dot) (";" semicolon)
+    ("=" assign)
+    ;; Augmented assignment operators, with the name of corresponding magic operator, as per
+    ;; http://www.rafekettler.com/magicmethods.html
+    ("+=" iadd) ("-=" isub) ("*=" imul) ("/=" imul) ("//=" ifloordiv) ("%=" imod)
+    ("&=" iand) ("|=" ior) ("^=" ixor) (">>=" irshift) ("<<=" ilshift) ("**=" ipow)
+    ;; ("`" repr) ;; Python 2 has `x` for repr(x), but it's deprecated and not in Python 3.
+    ("->" rarrow))) ;; This is PEP 3107 syntax to denote function types.
 
 (def operators
-  '("+" "-" "*" "**" "/" "//" "%"
-    "<<" ">>" "&" "|" "^" "~"
-    "<=" ">=" "==" "!=" "<>" "<" ">"))
+  '(("+" add) ("-" sub) ("*" mul) ("**" pow) ("/" div) ("//" floordiv) ("%" mod)
+    ("<<" lshift) (">>" rshift) ("&" and_) ("|" or_) ("^" xor) ("~" not_)
+    ;; Comparison operators:
+    ;; ("<>" ne) ;; deprecated, not in Python 3
+    ("<=" le) (">=" ge) ("==" eq) ("!=" ne) ("<" lt) (">" gt)))
 
 (def delimiters-and-operators
-  ;; Order matters: prefixes must come afterwards, or we must use a better decision algorithm.
-  (sort-by count > (concat delimiters operators)))
+  ;; Order matters: prefixes must come afterwards,
+  ;; or we must use a better decision algorithm that knows about prefixes
+  (sort-by #(count (first %)) > (concat delimiters operators)))
 
 (def &delimiter-or-operator
-  (&let [s (&or* (map #(&string= %) delimiters-and-operators))]
-    [(keyword s) nil]))
+  (&let [x (&or* (map (fn [[s x]] (&do (&string= s) (&return x))) delimiters-and-operators))]
+    [x nil]))
 
 (def paren-closer {\( \) \[ \] \{ \}})
 

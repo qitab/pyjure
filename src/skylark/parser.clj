@@ -1,6 +1,7 @@
 (ns skylark.parser
   (:require [skylark.lexer :as lex])
   (:use [skylark.lexer :refer [&return &bind &do]])
+  (:require [skylark.semantics :as s])
   (:require [clojure.string :as str])
   (:require [clojure.set :as set])
   (:use [clojure.algo.monads]))
@@ -18,7 +19,8 @@
 ;; Monadic parser entities have the & prefix.
 
 (def fail-msg "python parser failure")
-(defn fail ;; for richer throws, use slingshot ?
+(defn fail
+  ;; For more efficient failing, we ought to use a monad that knows about continuations
   ([] (fail {}))
   ([details] (throw (clojure.lang.ExceptionInfo. fail-msg details))))
 
@@ -27,7 +29,7 @@
      (&error {}))
   ([details]
      (fn [in]
-       (let [[_ _ info]]
+       (let [[[_ _ info]] in]
          (fail (conj details [:info info]))))))
 (def &fail (&error))
 (defn try-parse [f σ]
@@ -44,6 +46,8 @@
 (defn &not [l] ;; lookahead that l does not appear here
   (fn [σ] (if (try-parse l σ) (fail) [nil σ])))
 
+(def &nil (&return nil))
+
 (defmonad parser-m
   [ m-result &return
     m-bind &bind
@@ -52,24 +56,24 @@
 
 (defmacro &let [& r] `(domonad parser-m ~@r))
 
-(defn &token [[tok & rest]]
-  [tok rest])
-(defn &token-type-if [pred]
-  (fn [[[type data info :as tok] & rest]] (if (= type t) [tok rest] (fail))))
-(defn &token-type= [t] (&token-type-if #(= % t)))
-(defn &token-type-if-not [pred] (&token-type-if #(not (pred %))))
+(defn &fold [m f a]
+  (&or (&bind m #(&fold m f (f a %))) (&return a)))
+
+(defn &list [m]
+  (&let [r (&fold m conj ())] (reverse r)))
 
 (defn &optional [m]
   (&or m &nil))
 
-(defn &fold [m f a]
-  (&or (&bind m #(&fold m f (f a %))) (&return a)))
-
-(defn &conj [m a]
-  (&fold m conj a))
-
 (defn &repeat [m]
   (&fold m (constantly nil) nil))
+
+(defn &token [[tok & rest]]
+  [tok rest])
+(defn &type-if [pred]
+  (fn [[[type data info :as tok] & rest]] (if (pred type) [tok rest] (fail))))
+(defn &type= [t] (&type-if #(= % t)))
+(defn &type-if-not [pred] (&type-if #(not (pred %))))
 
 (def delimiters
   '("@" "," ":" "." "`" "=" ";"
@@ -81,21 +85,62 @@
     "<<" ">>" "&" "|" "^" "~"
     "<=" ">=" "==" "!=" "<>" "<" ">"))
 
-(def delimiters-and-operators
-  ;; Order matters: prefixes must come afterwards, or we must use a better decision algorithm.
-  (sort-by count > (concat delimiters operators)))
+(def &NIY &fail)
+(defn &paren [opener m closer]
+  (&let [_ (&type= opener) x m _ (&type= closer)] x))
 
-(def &delimiter-or-operator
-  (&let [s (&or* (map #(&string= %) delimiters-and-operators))]
-    [(keyword s) nil]))
+(defn &newline
+  ([] (&newline nil))
+  ([value] (&do (&type= :newline) (&return value))))
 
-(def paren-closer {\( \) \[ \] \{ \}})
+(def &dotted-name
+  &NIY)
+(def &arglist
+  &NIY)
+(def &class-definition
+  &NIY)
+(def &function-definition
+  &NIY)
+(def &simple-statement
+  &NIY)
+(def &compound-statement
+  &NIY)
 
-(def &python
-  &fail)
+(def &decorator
+  (&let [_ (&type= 'at)
+         name &dotted-name
+         args (&optional (&paren \( &arglist \)))
+         _ (&newline)]
+    (if (nil? args)
+      name
+      (cons name args))))
+
+(def &decorators
+  (&list &decorator))
+
+(defn &decorated [m]
+  (&let [d &decorators
+         x m]
+    (if d `(s/decorated ~d ~x) x)))
+
+(def &definition (&decorated (&or &class-definition &function-definition)))
+
+;; Start symbols for the grammar:
+;;   &single-input is a single interactive statement;
+;;   &file-input is a module or sequence of commands read from an input file;
+;;   &eval-input is the input for the eval() and input() functions.
+
+(def &single-input
+  (&or (&newline) &simple-statement (&bind &compound-statement &newline)))
+
+(def &file-input
+  (&or (&newline) &simple-statement (&bind &compound-statement &newline)))
+
+(def &eval-input
+  (&or (&newline) &simple-statement (&bind &compound-statement &newline)))
 
 (defn python-parser [input]
-  (first (&python (lex/python-lexer input))))
+  (first (&file-input (lex/python-lexer input))))
 
 (comment
   (defn tryf [fun] (try (fun) (catch clojure.lang.ExceptionInfo x (.data x))))
