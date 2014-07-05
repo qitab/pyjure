@@ -1,87 +1,118 @@
 (ns skylark.parser
   (:require [skylark.lexer :as lex])
+  (:use [skylark.lexer :refer [&return &bind &do]])
+  (:require [clojure.string :as str])
+  (:require [clojure.set :as set])
   (:use [clojure.algo.monads]))
 
-;; monad T:
-;;   bind: T α → (α→T β) → T β
-;;   result: α → T α
-;;   bind_result_id: bind (result x) k = k x
-;;   result_bind_id: bind x return = x
-;;   bind_bind: bind m (fn [x] (bind (k x) h)) = (bind (bind m k) h)
-;;
-;; MonadZero T extends Monad:
-;;   zero: T α
-;;   bind_left_zero: bind zero k = zero
-;;
-;; MonadFail T extends Monad:
-;;   fail: String → T α
-;;   bind_left_fail: bind (fail s) k = (fail s)
-;;
-;; MonadZero T extends Monad T:
-;;   plus: T α → T α → T α
-;;   plus_left_zero: plus zero α = α
-;;   plus_right_zero: plus α zero = α
-;;   plus_associativity: (plus α β) γ = plus α (plus β γ)
-;;
-;;   plus_distributes_bind: bind (plus a b) k = plus (bind a k) (bind b k)
-;;   plus_left_catch: plus (result a) b = result a
+;; https://docs.python.org/2/reference/grammar.html
 
+;; This parser is written in monadic style.
+;; type State = InputStream
+;; monad PythonParser α = State → α×State
+;;
+;; The State is what input remains unconsumed from the lexer output,
+;; a sequence of tokens of the form [type data info],
+;; where info is of the form [file [start-line start-column] [end-line end-column]]
+;;
+;; Monadic parser entities have the & prefix.
 
+(def fail-msg "python parser failure")
+(defn fail ;; for richer throws, use slingshot ?
+  ([] (fail {}))
+  ([details] (throw (clojure.lang.ExceptionInfo. fail-msg details))))
 
-;; type Input = Stream×IndentStack
-;; monad Parser α = Input → List(α×Input)
-
-;; (def zero-input '[() (0)]) ;; no input available, empty indentation stack
-(defn accept-fail [in] []) ;; always fail to have any valid parse.
-(defn accept-or [& parsers] (fn [in] (mapcat #(% in) parsers)))
+(defn &error
+  ([]
+     (&error {}))
+  ([details]
+     (fn [in]
+       (let [[_ _ info]]
+         (fail (conj details [:info info]))))))
+(def &fail (&error))
+(defn try-parse [f σ]
+  (try (f σ)
+       (catch clojure.lang.ExceptionInfo x
+         (when-not (= (.getMessage x) fail-msg) (throw x)))))
+(defn &or* [ls]
+  (fn [σ]
+    (loop [l ls]
+      (if (empty? l) ((&error) σ)
+          (or (try-parse (first l) σ)
+              (recur (rest l)))))))
+(defn &or [& ls] (&or* ls))
+(defn &not [l] ;; lookahead that l does not appear here
+  (fn [σ] (if (try-parse l σ) (fail) [nil σ])))
 
 (defmonad parser-m
-  [ m-result (fn [α] (fn [in] [[α in]]))
-    m-bind (fn [Tα fTβ] (fn [in] (mapcat fTβ (Tα in))))
-    m-zero accept-fail
-    m-plus accept-or
-    m-one accept-epsilon ])
+  [ m-result &return
+    m-bind &bind
+    m-zero (&error)
+    m-plus &or ])
 
+(defmacro &let [& r] `(domonad parser-m ~@r))
 
-;; type Input = Stream×IndentStack
-;; monad DeterministicParser α = Input → α×Input
-;;   bind: T α → (α→T β) → T β
-;;   result: α → T α
+(defn &token [[tok & rest]]
+  [tok rest])
+(defn &token-type-if [pred]
+  (fn [[[type data info :as tok] & rest]] (if (= type t) [tok rest] (fail))))
+(defn &token-type= [t] (&token-type-if #(= % t)))
+(defn &token-type-if-not [pred] (&token-type-if #(not (pred %))))
 
-(defmonad deterministic-parser-m
-  [ m-result (fn [α] (fn [in] [α in]))
-    m-bind (fn [Tα fTβ] (fn [in] (let [[α in] (Tα in)] ((fTβ α) in))))
-    m-zero (fn [in] (throw :fail))
-    m-one (fn [in] [nil in]) ])
+(defn &optional [m]
+  (&or m &nil))
 
-(defn m-peek-char [in] [[(in-char in) in]])
-(defn m-getpos [in] [[(in-charpos in) in]])
-(defn m-read-char [in] [[(in-char in) (rest in)]])
+(defn &fold [m f a]
+  (&or (&bind m #(&fold m f (f a %))) (&return a)))
 
-;; type Output = Stream
-;; monad Emitter α = α×Output
+(defn &conj [m a]
+  (&fold m conj a))
 
-(defmonad emitter-m
-  [ m-result (fn [α] (fn [out] [α out]))
-    m-bind (fn [[α out] fTβ] (let [[β more-out] (fTβ α)] [β (append more-out out))))
-    m-zero (fn [out] (throw :fail))
-    m-plus (fn [& emitters] 
+(defn &repeat [m]
+  (&fold m (constantly nil) nil))
 
-(defn m-out [out token] [[nil (conj out token)]])
-(defn m-done [out] [(reverse out) nil])
+(def delimiters
+  '("@" "," ":" "." "`" "=" ";"
+    "+=" "-=" "*=" "/=" "//" "%="
+    "&=" "|=" "^=" ">>=" "<<=" "**="))
 
-(defn in-char [in] (let [[[x]] in] x))
-(defn in-charpos [in] (let [[[x l c]] in] [x l c]))
+(def operators
+  '("+" "-" "*" "**" "/" "//" "%"
+    "<<" ">>" "&" "|" "^" "~"
+    "<=" ">=" "==" "!=" "<>" "<" ">"))
 
-(defn accept-python [in]
-  (lazy-seq
-   (when (in-char in)
-     (let [[tokens in] (expect-logical-line in)]
-       (concat tokens (expect-python pos-stream indent-stack))))))
+(def delimiters-and-operators
+  ;; Order matters: prefixes must come afterwards, or we must use a better decision algorithm.
+  (sort-by count > (concat delimiters operators)))
 
-(def expect-logical-line
-  (domonad parser-m
-    [l (expect-leading-whitespace)
+(def &delimiter-or-operator
+  (&let [s (&or* (map #(&string= %) delimiters-and-operators))]
+    [(keyword s) nil]))
 
-(defn python-lex-stream (stream)
-  (expect-python [(delta/positioned-stream stream) '(0)]))
+(def paren-closer {\( \) \[ \] \{ \}})
+
+(def &python
+  &fail)
+
+(defn python-parser [input]
+  (first (&python (lex/python-lexer input))))
+
+(comment
+  (defn tryf [fun] (try (fun) (catch clojure.lang.ExceptionInfo x (.data x))))
+
+  (defn test-parse [input] (tryf #(python-parser input)))
+
+  (defn test& [l input] (tryf #(l (lex/python-lexer input))))
+
+  (test-lex "
+def hello (world, *more)
+  print()
+  \"a b\" + 'c d' + \\
+  foo['abcd',
+bar, \"1 2 3\", 0, 1, [ 2, 03, 0b101, 0x7, 0o13, 0O15, 0X11 ],
+12.345e+67, 1., 1.0, 10e-1, .1e1, .01e+2, 1+.5j, -1,
+     # comment
+  baz]
+def quux ()
+  {ur\"x\": \"a\"}")
+);comment

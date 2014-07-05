@@ -70,13 +70,13 @@
 (defn &not [l] ;; lookahead that l does not appear here
   (fn [σ] (if (try-lex l σ) (fail) [nil σ])))
 
-(defmonad pylex-m
+(defmonad lexer-m
   [ m-result &return
     m-bind &bind
     m-zero (&error)
     m-plus &or ])
 
-(defmacro &let [& r] `(domonad pylex-m ~@r))
+(defmacro &let [& r] `(domonad lexer-m ~@r))
 
 (defn &peek-char [σ] [(in-char (σ-in σ)) σ])
 (defn &position [σ] [(in-column (σ-in σ)) σ])
@@ -141,26 +141,26 @@
 
 (def &backslash (&char= \\))
 
-(def &leading-whitespace-raw
-  (&do &whitespace &column))
-
 (def &implicit-line-continuation
   (fn [[in out is ds :as σ]]
     ((if (empty? ds) &fail &comment-eol) σ)))
 
+(def &explicit-line-continuation
+  (&do &backslash &eol))
+
 (def &line-continuation
-  (&or
-   &implicit-line-continuation
-   (&do &backslash &eol)))
+  (&or &implicit-line-continuation &explicit-line-continuation))
 
 (def &whitespace
-  (&repeat (&or (&char-if whitespace)
-                &line-continuation)))
+  (&repeat (&or (&char-if whitespace) &line-continuation)))
+
+(def &leading-whitespace-raw
+  (&do &whitespace &column))
 
 (def &leading-whitespace-continued
   (&let
     [column &leading-whitespace-raw
-     _ &line-continuation]
+     _ &explicit-line-continuation]
     column))
 
 (def &leading-whitespace
@@ -365,7 +365,9 @@
     [:integer (edn/read-string i)]))
 
 (def &numeric-literal
-  (&or &float-literal &integer-literal))
+  (&let [n (&or &float-literal &integer-literal)
+         j (&optional (&char-if #{\j \J}))]
+     (if j [:imaginary n] n)))
 
 (def delimiters
   '("@" "," ":" "." "`" "=" ";"
@@ -450,7 +452,7 @@ def hello (world, *more)
   \"a b\" + 'c d' + \\
   foo['abcd',
 bar, \"1 2 3\", 0, 1, [ 2, 03, 0b101, 0x7, 0o13, 0O15, 0X11 ],
-12.345e+67 1. 1.0 10e-1 .1e1 .01e+2
+12.345e+67, 1., 1.0, 10e-1, .1e1, .01e+2, 1+.5j, -1,
      # comment
   baz]
 def quux ()
