@@ -17,9 +17,6 @@
 ;; and info is a vector [file start end] of a filename (or nil),
 ;; start and end position (each a vector [line column] counting from 1).
 
-;; File information, if any, to include together with token position
-(def ^:dynamic *file* nil)
-
 (defn init-state [input]
   [(delta/positioned-stream input {:line-offset 1 :column-offset 0}) () '(0) ()])
 

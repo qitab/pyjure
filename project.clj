@@ -1,11 +1,12 @@
 (defproject skylark "0.0.1-SNAPSHOT"
   :description "Experimental implementation of Skylark in Clojure"
-  :url "TBD"
+  ;; :url "TBD"
   :license {:name "Apache License 2.0"
             :url "http://www.apache.org/licenses/"}
+  :main skylark.core
   :dependencies [[org.clojure/clojure "1.6.0"]
                  [org.clojure/algo.monads "0.1.4"]
-                 ;;[leijure/delta-position "0.1.0-SNAPSHOT"]
+                 [leijure/delta-position "0.1.0"]
 
                  ;;; Not using these, but experimenting...
                  [org.clojure/math.numeric-tower "0.0.4"]
@@ -17,4 +18,5 @@
                  ;;[the/parsatron "0.0.8-SNAPSHOT"]
                  [org.van-clj/zetta-parser "0.0.4"]
                  [squarepeg "0.6.1"]]
-  :repositories { "sonatype" {:url "https://oss.sonatype.org/content/repositories/snapshots/"}})
+  :repositories { "sonatype" {:url "https://oss.sonatype.org/content/repositories/snapshots/"}}
+  :profiles {:uberjar {:aot :all}})

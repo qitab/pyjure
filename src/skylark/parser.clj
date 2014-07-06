@@ -6,7 +6,8 @@
   (:require [clojure.set :as set])
   (:use [clojure.algo.monads]))
 
-;; https://docs.python.org/2/reference/grammar.html
+;; Input grammar: https://docs.python.org/2/reference/grammar.html
+;; Output AST: https://docs.python.org/2/library/ast.html
 
 ;; This parser is written in monadic style.
 ;; type State = InputStream
