@@ -3,32 +3,31 @@
 
 (def parse-ast-grammar
   (insta/parser
-   "grammar = <w> def ( <w '\\n\\n' w> def )* <w>
+   "<grammar> = <w> def ( <w '\\n\\n' w> def )* <w>
 
     w = whitespace*
-    whitespace = #'\\s+' | comment
-    comment = #'--.*$'
+    whitespace = #'[ \f\t\r\n]+' | comment
+    comment = #'--[^\n]*\n'
     cw = whitespace w
 
-    def = var <w> '=' <w> expr
-    var = #'[a-z_]+'
-    constant = #'[A-Z][a-zA-Z_]+'
-    expr = sum | product
+    def = var <w '=' w> expr
+    <var> = #'[a-z_]+'
+    <constant> = #'[A-Z][a-zA-Z_]+'
+    <expr> = sum | product
     sum = nodes <w> attributes
-    <nodes> = node ( <w> | <w> node )*
+    <nodes> = node ( <w '|' w> node )*
     node = constant <w> sequence?
     <attributes> = ( <'attributes' w> sequence )?
     product = sequence
-    sequence = '(' field (<w ',' w> field)* ')'
+    sequence = <'('> field (<w ',' w> field)* <')'>
     field = type <cw> var
     <type> = var | optional | repeated
     optional = type <w '?'>
     repeated = type <w '*'>
 "))
 
-;; AST for Python: https://docs.python.org/2/library/ast.html
-
-
+;; AST for Python, as copied verbatim from:
+;; https://docs.python.org/2/library/ast.html
 
 (def ast-grammar
   (parse-ast-grammar "
@@ -143,3 +142,9 @@
         -- import name with optional 'as' alias.
         alias = (identifier name, identifier? asname)
 "))
+
+(defmacro define-ast-nodes []
+  `(do
+     nil))
+
+(define-ast-nodes)
