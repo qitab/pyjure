@@ -7,6 +7,7 @@
   (:use [clojure.algo.monads]))
 
 ;; See Python 2 Documentation: https://docs.python.org/2/reference/lexical_analysis.html
+;; See Python 3 Documentation: https://docs.python.org/3.1/reference/lexical_analysis.html
 
 ;; This lexer is written in monadic style.
 ;; type State = InputStream×OutputStream×IndentStack×DelimStack
@@ -40,8 +41,12 @@
 
 (defn &return [α]
   (fn [σ] [α σ]))
-(defn &bind [Tα fTβ]
-  (fn [σ] (let [[α σ] (Tα σ)] ((fTβ α) σ))))
+(def &nil (&return nil))
+(defn &bind
+  ([Tα fTβ] (fn [σ] (let [[α σ] (Tα σ)] ((fTβ α) σ))))
+  ([Tα] Tα)
+  ([] &nil)
+  ([m1 m2 & ms] (reduce &bind (list* m1 m2 ms))))
 (defmacro &do
   ([] `(&return nil))
   ([m] m)
@@ -65,7 +70,6 @@
           (or (try-lex (first l) σ)
               (recur (rest l)))))))
 (defn &or [& ls] (&or* ls))
-(def &nil (&return nil))
 (defn &not [l] ;; lookahead that l does not appear here
   (fn [σ] (if (try-lex l σ) (fail) [nil σ])))
 
@@ -114,14 +118,14 @@
 (defn &fold [m f a]
   (&or (&bind m #(&fold m f (f a %))) (&return a)))
 
-(defn &conj [m a]
+(defn &conj* [m a]
   (&fold m conj a))
 
 (defn stringify [r] (str/join (reverse r)))
 
 (defn &chars
   ([m] (&chars m nil))
-  ([m prefix] (&let [s (&conj m prefix)] (stringify s))))
+  ([m prefix] (&let [s (&conj* m prefix)] (stringify s))))
 
 (defn &repeat [m]
   (&fold m (constantly nil) nil))
@@ -191,14 +195,16 @@
 (def letters_ (set/union uppercase lowercase #{\_}))
 (def letters_digits (set/union letters_ digits))
 
-(def keywords ;; keywords in the Python sense, here symbols on the Clojure side.
-  (let [l '(and as assert break class continue
-            def del elif else except exec
-            finally for from global if import in is
-            lambda not or pass print raise return try
-            while with yield)]
-    (into {} (map #(vector (str %) %) l))))
+(def keywords ;; keywords in the Python 3 sense, here symbols on the Clojure side.
+  (let [l '("False" "None" "True"
+            "and" "as" "assert" "break" "class" "continue"
+            "def" "del" "elif" "else" "except"
+            "finally" "for" "from" "global" "if" "import" "in" "is"
+            "lambda" "nonlocal" "not" "or" "pass" "raise" "return" "try"
+            "while" "with" "yield")]
+    (into {} (map #(vector % (symbol %)) l))))
 
+;; TODO: python 3 accepts unicode letters, too. See Python 3 documentation above.
 (def &ident-or-keyword
   (&let
    [start &position
@@ -311,10 +317,10 @@
     [long? q] &string-start-quote
     s (&chars (&string-item long? q ub r))
     _ (&string-end-quote long? q)]
-   [:string [s long? q ub r]]))
+   [:string [s ub long? q r]]))
 
 (defn &intpart [prefix]
-  (&conj (&char-if decimal-digit) prefix))
+  (&conj* (&char-if decimal-digit) prefix))
 
 (defn &fraction [prefix]
   (&do (&char= \.) (&intpart (conj prefix \.))))
@@ -355,11 +361,12 @@
                             (fn [c] (cond (#{\o \O} c) (&do &read-char &octal-integer)
                                           (#{\x \X} c) (&do &read-char &hexadecimal-integer)
                                           (#{\b \B} c) (&do &read-char &binary-integer)
-                                          (octal-digit c) &octal-integer
-                                          :else (&return "0"))))
+                                          ;; (octal-digit c) &octal-integer ;; Python 2 ism
+                                          :else (&do (&repeat (&char= \0) (&return "0"))))))
             (decimal-digit c) &decimal-integer
             :else &fail)
-         _ (&optional (&char-if #{\l \L}))]
+         ;; _ (&optional (&char-if #{\l \L})) ; Python 2 ism
+         ]
     [:integer (edn/read-string i)]))
 
 (def &numeric-literal
@@ -368,21 +375,20 @@
      (if j [:imaginary n] n)))
 
 (def delimiters ;; Should we prefix them all with s/ ? Also operators, keywords...
-  '(("@" at) ("," comma) (":" colon) ("." dot) (";" semicolon)
-    ("=" assign)
+  '(("," comma) (":" colon) ("." dot) (";" semicolon) ("@" at) ("=" assign) ("..." ellipsis)
     ;; Augmented assignment operators, with the name of corresponding magic operator, as per
     ;; http://www.rafekettler.com/magicmethods.html
     ("+=" iadd) ("-=" isub) ("*=" imul) ("/=" imul) ("//=" ifloordiv) ("%=" imod)
     ("&=" iand) ("|=" ior) ("^=" ixor) (">>=" irshift) ("<<=" ilshift) ("**=" ipow)
     ;; ("`" repr) ;; Python 2 has `x` for repr(x), but it's deprecated and not in Python 3.
-    ("->" rarrow))) ;; This is PEP 3107 syntax to denote function types.
+    ("->" rarrow))) ;; PEP 3107 syntax to denote function types, yet omitted in Python 3 lexer doc.
 
 (def operators
   '(("+" add) ("-" sub) ("*" mul) ("**" pow) ("/" div) ("//" floordiv) ("%" mod)
-    ("<<" lshift) (">>" rshift) ("&" and_) ("|" or_) ("^" xor) ("~" not_)
+    ("<<" lshift) (">>" rshift) ("&" and_) ("|" or_) ("^" xor) ("~" invert)
     ;; Comparison operators:
-    ;; ("<>" ne) ;; deprecated, not in Python 3
-    ("<=" le) (">=" ge) ("==" eq) ("!=" ne) ("<" lt) (">" gt)))
+    ;; ("<>" ne) ;; deprecated Python 2 ism
+    ("<" lt) (">" gt) ("<=" le) (">=" ge) ("==" eq) ("!=" ne)))
 
 (def delimiters-and-operators
   ;; Order matters: prefixes must come afterwards,

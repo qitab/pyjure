@@ -3,7 +3,7 @@
   ;; :url "TBD"
   :license {:name "Apache License 2.0"
             :url "http://www.apache.org/licenses/"}
-  :main skylark.core
+  ;; :main skylark.core
   :dependencies [[org.clojure/clojure "1.6.0"]
                  [org.clojure/algo.monads "0.1.4"]
                  [leijure/delta-position "0.1.0"]

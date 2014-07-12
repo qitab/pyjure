@@ -143,8 +143,11 @@
         alias = (identifier name, identifier? asname)
 "))
 
+(defun -define-ast-definition [[var expr]]
+  ;; XXX
+  nil)
+
 (defmacro define-ast-nodes []
-  `(do
-     nil))
+  `(do `@(map -gen-ast-node-definition ast-grammar))
 
 (define-ast-nodes)
