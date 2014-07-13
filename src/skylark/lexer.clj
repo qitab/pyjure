@@ -7,7 +7,7 @@
   (:use [clojure.algo.monads]))
 
 ;; See Python 2 Documentation: https://docs.python.org/2/reference/lexical_analysis.html
-;; See Python 3 Documentation: https://docs.python.org/3.1/reference/lexical_analysis.html
+;; See Python 3 Documentation: https://docs.python.org/3.5/reference/lexical_analysis.html
 
 ;; This lexer is written in monadic style.
 ;; type State = InputStream×OutputStream×IndentStack×DelimStack
@@ -82,7 +82,7 @@
 (defmacro &let [& r] `(domonad lexer-m ~@r))
 
 (defn &peek-char [σ] [(in-char (σ-in σ)) σ])
-(defn &position [σ] [(in-column (σ-in σ)) σ])
+(defn &position [σ] [(in-position (σ-in σ)) σ])
 (defn &column [σ] [(in-column (σ-in σ)) σ])
 (defn &indent-stack [σ] [(σ-indent-stack σ) σ])
 (defn &read-char [[in out is ds]] [(in-char in) [(rest in) out is ds]])
@@ -122,10 +122,12 @@
   (&fold m conj a))
 
 (defn stringify [r] (str/join (reverse r)))
+(defn bytify [r] (byte-array (map int (stringify r))))
 
 (defn &chars
-  ([m] (&chars m nil))
-  ([m prefix] (&let [s (&conj* m prefix)] (stringify s))))
+  ([m] (&chars m ()))
+  ([m prefix] (&chars m prefix stringify))
+  ([m prefix finalize] (&let [s (&conj* m prefix)] (finalize s))))
 
 (defn &repeat [m]
   (&fold m (constantly nil) nil))
@@ -206,15 +208,11 @@
 
 ;; TODO: python 3 accepts unicode letters, too. See Python 3 documentation above.
 (def &ident-or-keyword
-  (&let
-   [start &position
-    c (&char-if letters_)
-    s (&chars (&char-if letters_digits) (list c))
-    end &position]
-   (let [info [*file* start end]]
-     (if-let [k (keywords s)]
-       [k nil info] ;; skylark keywords as clojure symbols
-       [:id s info])))) ;; identifiers as strings (for now... can be interned later)
+  (&let [c (&char-if letters_)
+         s (&chars (&char-if letters_digits) (list c))]
+        (if-let [k (keywords s)]
+          [k nil] ;; skylark keywords as clojure symbols
+          [:id s]))) ;; identifiers as strings (for now... can be interned later)
 
 (defn char-lower-case [c]
   (when c (char (java.lang.Character/toLowerCase (int c)))))
@@ -269,7 +267,7 @@
          x4 &hexadecimal-digit x5 &hexadecimal-digit x6 &hexadecimal-digit x7 &hexadecimal-digit]
      (char (int<-digits 16 x0 x1 x2 x3 x4 x5 x6 x7))))
 
-(defn &escape-seq [ub r]
+(defn &escape-seq [b r]
   (&let
    [_ &backslash
     c (&char-if (constantly true))
@@ -287,17 +285,20 @@
           \r (&return \u000d) ;; ASCII Carriage Return (CR)
           \t (&return \u0009) ;; ASCII Horizontal Tab (TAB)
           \v (&return \u000b) ;; ASCII Vertical Tab (VT)
-          \N (if (= ub \u) &named-char &fail)
+          \N (if b &fail &named-char)
           \x &latin1-char ;; \xhh Character with hex value hh
-          \u &unicode-char-16 ;; \uxxxx Character with 16-bit hex value xxxx (Unicode only)
-          \U &unicode-char-32 ;; \Uxxxxxxxx Character with 32-bit hex value xxxxxxxx (Unicode only)
+          \u (if b &fail &unicode-char-16) ;; \uxxxx Character with 16-bit hex value xxxx
+          \U (if b &fail &unicode-char-32) ;; \Uxxxxxxxx Character with 32-bit hex value xxxxxxxx
           (if (octal-digit c) &octal-char &fail)))]
    x))
 
-(defn &string-item [long? q ub r]
+(defn ascii-char? [c] (and (char? c) (< (int c) 128)))
+
+(defn &string-item [long? q b r]
   (&or
-   (&char-if-not (if long? #{q \\} #{q \\ \newline \return}))
-   (&escape-seq ub r)
+   (&char-if (let [p (if long? #{q \\} #{q \\ \newline \return})]
+               (if b #(and (ascii-char? %) (not (p %))) (complement p))))
+   (&escape-seq b r)
    (if long? (let [l (&char= q)] (&do l (&not (&do l l)) (&return q))) &fail)))
 
 (def &string-start-quote
@@ -312,12 +313,20 @@
 
 (def &string-literal
   (&let
-   [ub (&optional (&let [c (&char-if #{\u \U \b \B})] (char-lower-case c)))
-    r (&optional (&let [c (&char-if #{\r \R})] (char-lower-case c)))
+   ;; Python 3 only has U, R, B BR (case insensitive, order insensitive)
+   [ubr (&optional (&let [c (&char-if #{\u \U \b \B \r \R})] (char-lower-case c)))
+    br (cond (= ubr \b) (&optional (&char-if #{\r \R}))
+             (= ubr \r) (&optional (&char-if #{\b \B}))
+             :else &nil)
+    [b r] (&return (let [br (char-lower-case br)]
+                     \u [false false]
+                     \r [(= br \b) true]
+                     \b [true (= br \r)]
+                     nil [false false]))
     [long? q] &string-start-quote
-    s (&chars (&string-item long? q ub r))
+    s (&chars (&string-item long? q b r) () (if b bytify stringify))
     _ (&string-end-quote long? q)]
-   [:string [s ub long? q r]]))
+   [(if b :bytes :string) s]))
 
 (defn &intpart [prefix]
   (&conj* (&char-if decimal-digit) prefix))
@@ -362,7 +371,7 @@
                                           (#{\x \X} c) (&do &read-char &hexadecimal-integer)
                                           (#{\b \B} c) (&do &read-char &binary-integer)
                                           ;; (octal-digit c) &octal-integer ;; Python 2 ism
-                                          :else (&do (&repeat (&char= \0) (&return "0"))))))
+                                          :else (&do (&repeat (&char= \0)) (&return "0")))))
             (decimal-digit c) &decimal-integer
             :else &fail)
          ;; _ (&optional (&char-if #{\l \L})) ; Python 2 ism
@@ -375,11 +384,11 @@
      (if j [:imaginary n] n)))
 
 (def delimiters ;; Should we prefix them all with s/ ? Also operators, keywords...
-  '(("," comma) (":" colon) ("." dot) (";" semicolon) ("@" at) ("=" assign) ("..." ellipsis)
+  '(("," comma) (":" colon) ("." dot) (";" semicolon) ("@" matmul) ("=" assign) ("..." ellipsis)
     ;; Augmented assignment operators, with the name of corresponding magic operator, as per
     ;; http://www.rafekettler.com/magicmethods.html
     ("+=" iadd) ("-=" isub) ("*=" imul) ("/=" imul) ("//=" ifloordiv) ("%=" imod)
-    ("&=" iand) ("|=" ior) ("^=" ixor) (">>=" irshift) ("<<=" ilshift) ("**=" ipow)
+    ("&=" iand) ("|=" ior) ("^=" ixor) (">>=" irshift) ("<<=" ilshift) ("**=" ipow) ("@=" imatmul)
     ;; ("`" repr) ;; Python 2 has `x` for repr(x), but it's deprecated and not in Python 3.
     ("->" rarrow))) ;; PEP 3107 syntax to denote function types, yet omitted in Python 3 lexer doc.
 

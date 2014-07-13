@@ -7,9 +7,8 @@
   (:use [clojure.algo.monads])
   (:use [clojure.core.match :only [match]]))
 
-(comment
 ;; This is largely based on the Python 3 grammar
-;; Python 3 grammar: https://docs.python.org/3.1/reference/grammar.html
+;; Python 3 grammar: https://docs.python.org/3.5/reference/grammar.html
 ;;
 ;; For reference, see also the
 ;; Python 2 grammar: https://docs.python.org/2/reference/grammar.html
@@ -173,13 +172,14 @@
          t))
 
 (def &NIY &fail)
-(defn &paren [opener m closer]
-  (&let [_ (&type opener) x m _ (&type closer)] x))
+(defn &paren
+  ([m] (&paren \( \) m))
+  ([opener closer m] (&let [_ (&type opener) x m _ (&type closer)] x)))
 
 (def &newline (&type :newline))
 
 (defn &prefixed [prefix m]
-  (&let [_ (&type prefix) x m] [prefix x]))
+  (&letx [_ (&type prefix) x m] [prefix x]))
 
 (defn &prefixed-vector [prefix & ms]
   (&prefixed prefix (apply &vector-f ms)))
@@ -191,19 +191,19 @@
   (&mod-expr m (&non-empty-list (&do (&type op) m)) #(do [op (cons % %2)])))
 
 (defn &multi-op-expr [tag op m]
-  (&mod-expr m (&non-empty-list (&vec op m)) #(do [tag [% %2]])))
+  (&mod-expr m (&non-empty-list (&vector op m)) #(do [tag [% %2]])))
 
 (defn &unary-op-expr [opmap m]
   (&leti [l (&list (&type-if opmap)) x m]
-         (reduce (fn [[_ _ i2 :as x] [op _ i1]] [(opmap op) x (merge-info i1 i2)]) c l)))
+         (reduce (fn [[_ _ i2 :as x] [op _ i1]] [(opmap op) x (merge-info i1 i2)]) x l)))
 
 ;;; Our Pythonic grammar
 
 ;; We need to declare forward references.
-(defmacro def-forward [name later] `(defn ~name [σ] ((deref (ref '~later)) σ)))
-(def-forward &test &test0)
-(def-forward &exprlist &exprlist0)
-(def-forward &comp-iter &comp-iter0)
+(defmacro def-forward [& names] `(do ~@(map #(do `(defn ~% [~'σ] ((deref (ref '~%)) ~'σ))) names)))
+(def-forward &test &test-nocond &test-star-expr &exprlist &factor
+  &comp-iter &simple-statement &statement &comp-for)
+
 (def &testlist (&non-empty-maybe-terminated-list &test))
 
 (defn &argslist [arg defaults]
@@ -216,7 +216,7 @@
                 (&return [nil true]))
            [rest-arg yetmore]
            (if more (&or (&optional (&vector (&do (&type 'mul) &name) &optional-comma))
-                       (&return [nil yetmore]))
+                       (&return [nil more]))
                (&return [nil nil]))
            [more-args stillmore]
            (if (and rest-arg yetmore)
@@ -225,73 +225,81 @@
              (&return [nil nil]))
            keyword-arg
            (if stillmore (&optional (&do (&type 'pow) &name)) &nil)
-           _ (if (and (nil? keyword-arg) (= stillmore comma)) &fail &nil)]
+           _ (if (and (nil? keyword-arg) (= stillmore 'comma)) &fail &nil)]
           [positional-args rest-arg more-args keyword-arg])))
 
 ;; Note: these correspond to _optional_ [*argslist] in the python grammar.
 (def &varargslist (&argslist &name true))
 (def &typed-args-list (&argslist (&vector &name (&optional (&do &colon &test))) true))
 
-(def merge-strings [ss]
-  (if (empty? ss) (error "foo")
-      (let [[[_ [s ub long? q r] _ :as fs] rs] ss]
-        (empty? rs) fs
-        (mapcat (fn [[xs xub _ _ _]]
-                  (or (= ub xub) (error "strings of incompatible unicodeness"))
-                  xs)))))
+(defn join-bytes [arrays]
+  (let [sizes (map count arrays)
+        sizes_r (vec (reductions + sizes))
+        offsets (cons 0 (drop-last sizes_r))
+        total (last sizes_r)
+        out (byte-array total)]
+    (dorun (map #(System/arraycopy %2 0 out %1 %3) offsets arrays sizes))
+    out))
 
-(def &comp-for (&vec (&do (&type 'for) (&return 'comp-for)) &exprlist
-                     (&do (&type 'in) &or-test (&optional &comp-iter))))
-(def &comp-if (&vec (&do (&type 'if) (&return 'comp-if)) &test-nocond (&optional &comp-iter)))
-(def &comp-iter0 (&or &comp-for &comp-if))
+(defn merge-strings [ss]
+  (assert (not (empty? ss)))
+  (let [[[b s1 i1 :as fs] rs] ss]
+    (loop [sl (list s1) i2 i1 r rs]
+      (if (empty? r)
+        [b ((if (= b :bytes) join-bytes str/join) (reverse sl)) (merge-info i1 i2)]
+        (let [[[b2 s2 i2] r2] r]
+          (assert (= b b2))
+          (recur (cons s2 sl) i2 r2))))))
 
 ;; The reason that keywords are test nodes instead of NAME is that using NAME
 ;; results in an ambiguity. ast.c makes sure it's a NAME.
-(def &argument (&or (&mod_expr &test &comp_for #(do ['argument-comprehension [% %2]]))
-                    (&vec &test (&do (&type 'assign) &test)))) ;; Really [NAME '='] test
+(def &argument (&or (&mod-expr &test &comp-for #(do ['comprehension ['argument % %2]]))
+                    (&vector &test (&do (&type 'assign) &test)))) ;; Really [NAME '='] test
 (def &arglist (&argslist &argument false))
 
 (def &slice-op (&do &colon (&optional &test)))
-(def &subscript (&or &test (&vec (&return 'slice) (&optional &test)
-                                 (&do &colon (&optional &test)) (&optional &slice-op))))
-(def &subscriptlist (&non-empty-separated-list &subscript))
+(def &subscript (&or &test
+                     (&letx [x (&optional &test)
+                             y (&do &colon (&optional &test))
+                             z (&optional &slice-op)]
+                            ['slice [x y z]])))
+(def &subscriptlist (&non-empty-maybe-terminated-list &subscript))
 (defn &comprehension [kind m]
   (&letx [x m
           f (&optional &comp-for)
-          [l c] (if f &nil (&vec (&list (&do &comma m)) &optional-comma))]
+          [l c] (if f &nil (&vector (&list (&do &comma m)) &optional-comma))]
          (cond f ['comprehension [kind x f]]
                (or l c (not (= kind 'tuple))) [kind (cons x l)]
                :else ['identity x])))
-(def &atom (&or (&paren \( \) (&or &yield-expr (&comprehension 'tuple &test) (&return 'zero-uple)))
-                (&paren \[ \] (&or (&comprehension 'list &test) (&return 'empty-list)))
-                (&paren \{ \} (&or (&comprehension 'dict &dictpair)
+(def &yield-expr (&prefixed 'yield (&optional (&or (&prefixed 'from &test) &testlist))))
+(def &atom (&or (&paren (&or &yield-expr (&comprehension 'tuple &test-star-expr) (&return 'zero-uple)))
+                (&paren \[ \] (&or (&comprehension 'list &test-star-expr) (&return 'empty-list)))
+                (&paren \{ \} (&or (&comprehension 'dict (&vector &test (&do &colon &test)))
                                    (&comprehension 'set &test)
                                    (&return 'empty-dict)))
-                ;; (&prefixed 'repr (&do1 &testlist1 (&type 'repr))) ;; Python 2 ism
-                &name &number
-                (&letx [x (&non-empty-list (&type :string))]
-                       [:string (merge-strings x)])
-                (&type-of '#{ellipsis None True False})))
+                &name (&type-if '#{:integer :float :imaginary ellipsis None True False})
+                (&let [x (&non-empty-list (&type-if #{:string :bytes}))]
+                      (merge-strings x))))
+(def &trailer (&or (&letx [x (&paren &arglist)] ['call x])
+                   (&letx [x (&paren \[ \] &subscriptlist)] ['subscript x])
+                   (&letx [x (&do &dot &name)] ['select x])))
 (def &atom-trailer
-  (&let [a &atom
-         t (&list (&or (&letx [x (&paren (&optional &arglist))] [mk_call x])
-                       (&letx [x (&paren \[ \] &subscriptlist)] [mk_subscript x])
-                       (&letx [x (&do &dot &name)] [mk_select x])))]
-        (reduce (fn [[_ _ ix :as x] [fun y iy]] (conj (fun x y) (merge-info ix iy))) a t)))
+  (&let [a &atom t (&list &trailer)]
+        (reduce (fn [[_ _ ix :as x] [tag y iy]] [tag [x y] (merge-info ix iy)]) a t)))
 (def &power (&mod-expr &atom-trailer (&do (&type 'pow) &factor) #(do ['pow [% %2]])))
-(def &factor0 (&unary-op '{invert invert, add pos, sub neg} &power))
-(def &term (&multi-op-expr 'term (&type-if '#{mul div mod floordiv}) &factor))
+(def &factor (&unary-op-expr '{add pos, sub neg, invert invert} &power))
+(def &term (&multi-op-expr 'term (&type-if '#{mul matmul div mod floordiv}) &factor))
 (def &arith-expr (&multi-op-expr 'arith-expr (&type-if '#{add sub}) &term))
 (def &shift-expr (&multi-op-expr 'shift-expr (&type-if '#{lshift rshift}) &arith-expr))
 (def &and-expr (&op-expr 'and_ &shift-expr))
 (def &xor-expr (&op-expr 'xor &and-expr))
 (def &expr (&op-expr 'or_ &xor-expr))
-(def &star-expr (&unary-op-expr '{mul star} &expr))
+(def &star-expr (&letx [_ (&type 'mul) x &expr] ['star x]))
 (def &comp-op (&or (&letx [_ (&type 'not) _ (&type 'in)] ['not-in nil])
-                   (&letx [_ (&type 'is) _ (&type 'not)] ['is-not nil])
+                   (&letx [_ (&type 'is) _ (&type 'not)] ['is_not nil])
                    (&type-if '#{lt gt eq ge le ne in is})))
-(def &comparison (&multi-op-expr 'comparison &star-expr &comp-op))
-(def &not-test (&unary-op-expr '{not not} &comparison))
+(def &comparison (&multi-op-expr 'comparison &expr &comp-op))
+(def &not-test (&unary-op-expr #{not} &comparison))
 (def &and-test (&op-expr 'and &not-test))
 (def &or-test (&op-expr 'or &and-test))
 (defn &lambdef0 [m]
@@ -299,12 +307,16 @@
 (def &lambdef (&lambdef0 &test))
 (def &lambdef-nocond (&lambdef0 &test-nocond))
 (def &test-nocond (&or &or-test &lambdef-nocond))
-(def &test0
+(def &test
   (&or (&mod-expr &or-test (&vector (&do (&type 'if) &or-test) (&do (&type 'else) &test))
                   #(do ['if [(first %2) % (second %2)]]))
        &lambdef))
 
-(def &exprlist0 (&non-empty-maybe-terminated-list &star-expr))
+(def &exprlist (&non-empty-maybe-terminated-list (&or &expr &star-expr)))
+(def &comp-for (&letx [_ (&type 'for) x &exprlist _ (&type 'in) y &or-test z (&optional &comp-iter)]
+                      ['comp-for [x y z]]))
+(def &comp-if (&letx [_ (&type 'if) x &test-nocond y (&optional &comp-iter)] ['comp-if [x y]]))
+(def &comp-iter (&or &comp-for &comp-if))
 
 (def &suite
   (&or &simple-statement
@@ -315,7 +327,7 @@
 (def &function-definition
   (&prefixed-vector
    'def &name
-   (&paren \( \) &typed-args-list)
+   (&paren &typed-args-list)
    (&optional (&do (&type 'rarrow) &test)) ;; PEP 3107 type annotations: return-type
    &colon-suite))
 
@@ -325,33 +337,27 @@
 (def &augassign
   (&type-if '#{iadd isub imul ifloordiv imod iand ior ixor ixrshift ilshift ipow}))
 
-(def &import-as-name (&vector &name (&do (&type 'as) &name)))
-(def &dotted-as-name (&vector &dotted-name (&do (&type 'as) &name)))
+(def &dotted-name (&non-empty-separated-list &name &dot))
+(def &import-as-name (&vector &name (&optional (&do (&type 'as) &name))))
+(def &dotted-as-name (&vector &dotted-name (&optional (&do (&type 'as) &name))))
 (def &import-as-names (&non-empty-maybe-terminated-list &import-as-name))
 (def &dotted-as-names (&non-empty-separated-list &dotted-as-name))
-(def &dotted-name (&letx [x (&non-empty-separated-list &name &dot)] [:dotted-name x]))
 
-(def &global-name (&prefixed 'global (&non-empty-separated-list &dotted-as-name)))
+(def &global-name (&prefixed 'global (&non-empty-separated-list &name)))
+(def &nonlocal-statement (&prefixed 'nonlocal (&non-empty-separated-list &name)))
+(def &assert-statement (&prefixed-vector 'assert &test (&optional &test)))
 
-(def &nonlocal-statement (&prefixed 'nonlocal (&non-empty-separated-list &dotted-as-name)))
-(def &assert-statement (&prefixed 'assert (&non-empty-separated-list &test)))
+(def &test-star-expr (&or &test &star-expr))
+(def &testlist-star-expr (&non-empty-maybe-terminated-list &test-star-expr))
 
 (def &expr-statement
-  (&leti [x &testlist
+  (&leti [x &testlist-star-expr
           l (&or (&vector &augassign (&or &yield-expr &testlist))
-                 (&non-empty-list (&do (&type 'assign) (&or &yield-expr &testlist)))
+                 (&non-empty-list (&do (&type 'assign) (&or &yield-expr &testlist-star-expr)))
                  &nil)]
          (cond (nil? l) x
                (vector? l) ['augassign-expr [x (first l) (second l)] info&]
-               ['assign-expr (cons x l) info&])))
-
-(comment ;; Python 2 ism
-  (def &testlist1 (&non-empty-separated-list &test))
-  (def &print-statement
-    (&letx [_ (&type 'print)
-            x (&or (&maybe-terminated-list &test)
-                   (&vector (&do (&type 'rshift) &test) (&non-empty-maybe-terminated-list &test)))]
-           ['print x])))
+               :else ['assign-expr (cons x l) info&])))
 
 (def &del-statement (&prefixed 'del &exprlist))
 
@@ -362,8 +368,6 @@
 (def &continue-statement (&type 'continue))
 
 (def &return-statement (&prefixed 'return (&optional &testlist)))
-
-(def &yield-expr (&prefixed 'yield (&optional &testlist)))
 
 (def &yield-statement &yield-expr)
 
@@ -381,7 +385,7 @@
    'from
    (&or (&vector &dots0 &dotted-name) &dots)
    (&do (&type 'import)
-        (&or (&type 'mul) (&paren \( \) &import-as-names) &import-as-names))))
+        (&or (&type 'mul) (&paren &import-as-names) &import-as-names))))
 
 (def &import-statement (&or &import-name &import-from))
 
@@ -424,16 +428,10 @@
 (def &with-statement
   (&prefixed-vector 'with (&non-empty-separated-list &with-item) &colon-suite))
 
-(def &compound-statement
-  (&or &if-statement &while-statement &for-statement &try-statement &with-statement &definition))
-
-(def &statement
-  (&or &compound-statement &simple-statement))
-
 (def &decorator
-  (&leti [_ (&type 'at)
+  (&leti [_ (&type 'matmul)
           name &dotted-name
-          args (&optional (&paren \( &arglist \)))
+          args (&optional (&paren &arglist))
           _ &newline]
          [name args info&]))
 
@@ -441,6 +439,13 @@
   (&leti [decorators (&list &decorator)
           [defkind data info] (&or &class-definition &function-definition)]
          [defkind (conj data decorators) info&]))
+
+(def &compound-statement
+  (&or &if-statement &while-statement &for-statement &try-statement &with-statement &definition))
+
+(def &statement
+  (&or &compound-statement &simple-statement))
+
 
 ;; Start symbols for the grammar:
 ;;   &single-input is a single interactive statement;
@@ -489,11 +494,3 @@ def quux ()
   {ur\"x\": \"a\"}")
 );comment
 
-(comment "
-Bugs in Python 3 grammar documentation
-* '<>' still there
-* testlist1 still there
-* -> not listed as a special lexer delimiter
-
-")
-)
