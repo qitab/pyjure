@@ -1,11 +1,11 @@
 (ns skylark.parser
+  (:use [clojure.algo.monads])
+  (:use [clojure.core.match :only [match]])
+  (:use [skylark.lexer :refer [&return &nil &bind &let &do &do1]])
   (:require [skylark.lexer :as lex])
-  (:use [skylark.lexer :refer [&return &bind &do &do1]])
   (:require [skylark.semantics :as s])
   (:require [clojure.string :as str])
-  (:require [clojure.set :as set])
-  (:use [clojure.algo.monads])
-  (:use [clojure.core.match :only [match]]))
+  (:require [clojure.set :as set]))
 
 ;; This is largely based on the Python 3 grammar
 ;; Python 3 grammar: https://docs.python.org/3.5/reference/grammar.html
@@ -42,6 +42,10 @@
   ([details] (fn [σ] (fail (conj details [:info (:prev-info σ)])))))
 (def &fail (&error))
 
+(defn try-parse [f σ]
+  (try (f σ)
+       (catch clojure.lang.ExceptionInfo x
+         (when-not (= (.getMessage x) fail-msg) (throw x)))))
 (defn &or* [ls]
   (fn [σ]
     (loop [l ls]
@@ -55,26 +59,16 @@
     m-bind &bind
     m-zero (&error)
     m-plus &or ])
-(defmacro &let
-  ([bindings]
-     `(&let ~bindings ;; return the last result that is not _ or a keyword
-            ~(lex/find-if #(not (or (= % '_) (keyword? %))) (reverse (map first (partition 2 bindings))))))
-  ([bindings result] `(domonad parser-m ~bindings ~result)))
 
 ;;; Monadic combinators
 
-(defn try-parse [f σ]
-  (try (f σ)
-       (catch clojure.lang.ExceptionInfo x
-         (when-not (= (.getMessage x) fail-msg) (throw x)))))
 (defn &not [l] ;; lookahead that l does not appear here
   (fn [σ] (if (try-parse l σ) (fail) [nil σ])))
-(def &nil (&return nil))
 (defn &lift-f
   ([fun] (&return (fun)))
   ([fun m] (&bind m (fn [x] (&return (fun x)))))
-  ([fun m & ms] (apply &lift-f (fn [x] (partial fun x)) ms)))
-(defn &vector-f [& ms] (apply &lift-f ms))
+  ([fun m & ms] (&bind m (fn [x] (apply &lift-f (partial fun x) ms)))))
+(defn &vector-f [& ms] (apply &lift-f vector ms))
 (defmacro &lift [fun & ms]
   (let [vars (map #(do % (gensym)) ms)
         bindings (into [] (mapcat list vars ms))]
@@ -129,7 +123,7 @@
 (def &name (&type :id))
 
 (defn &non-empty-separated-list
-  ([m] &non-empty-separated-list &comma)
+  ([m] (&non-empty-separated-list m &comma))
   ([m separator] (&bind m (fn [a] (&list (&do separator m) (list a))))))
 
 (defn &separated-list [m separator]
@@ -185,8 +179,8 @@
 ;;; Our Pythonic grammar
 
 ;; We need to declare forward references.
-(defmacro def-forward [& names]
-  `(do ~@(map #(do `(defn ~% [~'σ] ((deref (ref '~%)) ~'σ))) names)))
+(defmacro def-forward [& names] ;; (symbol (str % '$))
+  `(do ~@(map #(do `(defn ~% [~'σ] ((var-get #'~%) ~'σ))) names)))
 (def-forward
   &test &test-nocond &test-star-expr &exprlist &factor
   &comp-iter &comp-for &simple-statement &statement)
@@ -256,8 +250,9 @@
           f (&optional &comp-for)
           [l c] (if f &nil (&vector (&list (&do &comma m)) &optional-comma))]
          (cond f ['comprehension [kind x f]]
-               (or l c (not (= kind 'tuple))) [kind (cons x l)]
-               :else ['identity x])))
+               (and (empty? l) (nil? c) (= kind 'tuple)) ['identity x]
+               :else [kind (cons x l)])))
+
 (def &yield-expr (&prefixed 'yield (&optional (&or (&prefixed 'from &test) &testlist))))
 (def &atom (&or (&paren (&or &yield-expr (&comprehension 'tuple &test-star-expr) (&return 'zero-uple)))
                 (&paren \[ \] (&or (&comprehension 'list &test-star-expr) (&return 'empty-list)))
@@ -456,7 +451,7 @@
         ['Expression x]))
 
 (defn parser-input [input]
-  [(lex/python-lexer input) [*file* [0 0] [0 0]]])
+  (->Σ (lex/python-lexer input) [*file* [0 0] [0 0]]))
 
 (defn python-parser [input]
   (first (&file-input (parser-input input))))

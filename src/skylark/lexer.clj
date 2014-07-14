@@ -38,6 +38,7 @@
 ;; Monadic lexer entities have the & prefix.
 
 (defn &return [α] (fn [σ] [α σ]))
+(def &nil (&return nil))
 (defn &bind
   ([Tα fTβ] (fn [σ] (let [[α σ] (Tα σ)] ((fTβ α) σ))))
   ([Tα] Tα)
@@ -78,7 +79,6 @@
   ([bindings result] `(domonad lexer-m ~bindings ~result)))
 (defmacro &do1 [m & ms] `(&let [~'x# ~m ~'_ (&do ~@ms)]))
 
-(def &nil (&return nil))
 (defn &not [l] ;; lookahead that l does not appear here
   (fn [σ] (if (try-lex l σ) (fail) [nil σ])))
 (defn &optional [m] (&or m &nil))
