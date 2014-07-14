@@ -9,8 +9,8 @@
 ;; See Python 2 Documentation: https://docs.python.org/2/reference/lexical_analysis.html
 ;; See Python 3 Documentation: https://docs.python.org/3.5/reference/lexical_analysis.html
 
-;; This lexer is written in monadic style.
-;; type State = InputStream×OutputStream×IndentStack×DelimStack
+;; This lexer is written in monadic style using the State monad, where
+;; type State = InputStream×PrevInfo×OutputStream×IndentStack×DelimStack
 ;; monad PythonLexer α = State → α×State
 ;;
 ;; The output is a sequence of vector of the form: [type data info]
@@ -18,18 +18,22 @@
 ;; and info is a vector [file start end] of a filename (or nil),
 ;; start and end position (each a vector [line column] counting from 1).
 
-(defn init-state [input]
-  [(delta/positioned-stream input {:line-offset 1 :column-offset 0}) () '(0) ()])
-
+(defn mkσ
+  ([input] (let [pos {:line-offset 1 :column-offset 0}]
+                (mkσ (delta/positioned-stream input pos) pos () '(0) ())))
+  ([in pp out is ds] [in pp out is ds]))
 (defn σ-in [σ] (σ 0))
-(defn σ-out [σ] (σ 1))
-(defn σ-indent-stack [σ] (σ 2))
-(defn σ-delim-stack [σ] (σ 3))
+(defn σ-prev-position [σ] (σ 1))
+(defn σ-out [σ] (σ 2))
+(defn σ-indent-stack [σ] (σ 3))
+(defn σ-delim-stack [σ] (σ 4))
 
 (defn in-char [in] (let [[[x]] in] x))
 (defn in-position [in] (let [[[_ l c]] in] [l c]))
 (defn in-column [in] (let [[[_ l c]] in] c))
+
 (defn done? [σ] (empty? (σ-in σ)))
+(defn σ-position [σ] (if (done? σ) (σ-prev-position σ) (in-position (σ-in σ))))
 
 (def fail-msg "python lexer failure")
 (defn fail ;; for richer throws, use slingshot ?
@@ -39,8 +43,7 @@
 
 ;; Monadic lexer entities have the & prefix.
 
-(defn &return [α]
-  (fn [σ] [α σ]))
+(defn &return [α] (fn [σ] [α σ]))
 (def &nil (&return nil))
 (defn &bind
   ([Tα fTβ] (fn [σ] (let [[α σ] (Tα σ)] ((fTβ α) σ))))
@@ -52,23 +55,18 @@
   ([m] m)
   ([m & ms] `(&bind ~m (fn [~'_] (&do ~@ms)))))
 (defn &error
-  ([]
-     (&error {}))
-  ([details]
-     (fn [[in]]
-       (let [[l c] (in-position in)]
-         (fail (conj details [:file *file*] [:line l] [:column c]))))))
+  ([] (&error {}))
+  ([details] (fn [σ] (let [[l c] (σ-position σ)]
+                          (fail (conj details [:file *file*] [:line l] [:column c]))))))
 (def &fail (&error))
 (defn try-lex [f σ]
-  (try (f σ)
-       (catch clojure.lang.ExceptionInfo x
-         (when-not (= (.getMessage x) fail-msg) (throw x)))))
+  (try (f σ) (catch clojure.lang.ExceptionInfo x
+               (when-not (= (.getMessage x) fail-msg) (throw x)))))
 (defn &or* [ls]
-  (fn [σ]
-    (loop [l ls]
-      (if (empty? l) ((&error) σ)
-          (or (try-lex (first l) σ)
-              (recur (rest l)))))))
+  (fn [σ] (loop [l ls]
+            (if (empty? l) ((&error) σ)
+                (or (try-lex (first l) σ)
+                    (recur (rest l)))))))
 (defn &or [& ls] (&or* ls))
 (defn &not [l] ;; lookahead that l does not appear here
   (fn [σ] (if (try-lex l σ) (fail) [nil σ])))
@@ -79,30 +77,32 @@
     m-zero (&error)
     m-plus &or ])
 
-(defmacro &let [& r] `(domonad lexer-m ~@r))
+(defn find-if [pred seq] ;; NB: doesn't distinguish between finding nil and not finding
+  (if (empty? seq) nil (let [x (first seq)] (if (pred x) x (recur pred (rest seq))))))
+(defmacro &let
+  ([bindings]
+     `(&let ~bindings ;; return the last result that is not _ or a keyword
+            ~(find-if #(not (or (= % '_) (keyword? %))) (reverse (map first (partition 2 bindings))))))
+  ([bindings result] `(domonad lexer-m ~bindings ~result)))
+(defmacro &do1 [m & ms] `(&let [~'x# ~m ~'_ (&do ~@ms)]))
 
 (defn &peek-char [σ] [(in-char (σ-in σ)) σ])
-(defn &position [σ] [(in-position (σ-in σ)) σ])
+(defn &position [σ] [(σ-position σ) σ])
 (defn &column [σ] [(in-column (σ-in σ)) σ])
 (defn &indent-stack [σ] [(σ-indent-stack σ) σ])
-(defn &read-char [[in out is ds]] [(in-char in) [(rest in) out is ds]])
-(defn &emit [& α] (fn [[in out is ds]] [nil [in (apply conj out α) is ds]]))
+;; NB: the two below functions match State
+(defn &read-char [[in pp out is ds :as σ]] [(in-char in) (mkσ (rest in) (σ-position σ) out is ds)])
+(defn &emit [& α] (fn [[in pp out is ds]] [nil (mkσ in pp (apply conj out α) is ds)]))
 (defn &neof [σ] ((if (done? σ) (&error {:r "unexpected EOF"}) &nil) σ))
 (defn &eof [σ] ((if (done? σ) &nil (&error {:r "expected EOF"})) σ))
 
 (defn &char-if [pred]
-  (&let
-    [x &read-char
-     :if (not (and x (pred x)))
-     :then [_ (&error {:r "expected char" :pred pred})]
-     :else [_ &nil]]
-    x))
-
-(defn &char-if-not [pred]
-  (&char-if #(not (pred %))))
-
-(defn &char= [c]
-  (&char-if #(= % c)))
+  (&let [x &read-char
+         :if (not (and x (pred x)))
+         :then [_ (&error {:r "expected char" :pred pred})]
+         :else [_ &nil]]))
+(defn &char-if-not [pred] (&char-if #(not (pred %))))
+(defn &char= [c] (&char-if #(= % c)))
 
 (defn &string=
   ([s] (&string= s 0))
@@ -112,14 +112,10 @@
        (&bind (&char= (nth s start)) (fn [_] (&string= s (inc start) end)))
        (&return s))))
 
-(defn &optional [m]
-  (&or m &nil))
-
-(defn &fold [m f a]
-  (&or (&bind m #(&fold m f (f a %))) (&return a)))
-
-(defn &conj* [m a]
-  (&fold m conj a))
+(defn &optional [m] (&or m &nil))
+(defn &fold [m f a] (&or (&bind m #(&fold m f (f a %))) (&return a)))
+(defn &conj* [m a] (&fold m conj a))
+(defn &repeat [m] (&fold m (constantly nil) nil))
 
 (defn stringify [r] (str/join (reverse r)))
 (defn bytify [r] (byte-array (map int (stringify r))))
@@ -129,68 +125,37 @@
   ([m prefix] (&chars m prefix stringify))
   ([m prefix finalize] (&let [s (&conj* m prefix)] (finalize s))))
 
-(defn &repeat [m]
-  (&fold m (constantly nil) nil))
-
 (def whitespace #{\space \tab \formfeed})
-
 (def crlf #{\return \newline})
-
-(def &eol
-  (&or (&do (&char= \return) (&optional (&char= \newline)))
-       (&char= \newline)
-       &eof))
-
-(def &comment-eol
-  (&do (&optional (&do (&char= \#) (&repeat (&char-if-not crlf)))) &eol))
-
+(def &eol (&or (&do (&char= \return) (&optional (&char= \newline)))
+               (&char= \newline)
+               &eof))
+(def &comment-eol (&do (&optional (&do (&char= \#) (&repeat (&char-if-not crlf)))) &eol))
 (def &backslash (&char= \\))
-
-(def &implicit-line-continuation
-  (fn [[in out is ds :as σ]]
-    ((if (empty? ds) &fail &comment-eol) σ)))
-
-(def &explicit-line-continuation
-  (&do &backslash &eol))
-
-(def &line-continuation
-  (&or &implicit-line-continuation &explicit-line-continuation))
-
-(def &whitespace
-  (&repeat (&or (&char-if whitespace) &line-continuation)))
-
-(def &leading-whitespace-raw
-  (&do &whitespace &column))
-
-(def &leading-whitespace-continued
-  (&let
-    [column &leading-whitespace-raw
-     _ &explicit-line-continuation]
-    column))
-
-(def &leading-whitespace
-  (&let
-    [col0 (&fold &leading-whitespace-continued + 0)
-     col1 &leading-whitespace-raw]
-    (+ col0 col1)))
+(def &implicit-line-continuation (fn [σ] ((if (empty? (σ-delim-stack σ)) &fail &comment-eol) σ)))
+(def &explicit-line-continuation (&do &backslash &eol))
+(def &line-continuation (&or &implicit-line-continuation &explicit-line-continuation))
+(def &whitespace (&repeat (&or (&char-if whitespace) &line-continuation)))
+(def &leading-whitespace-raw (&do &whitespace &column))
+(def &leading-whitespace-continued (&do1 &leading-whitespace-raw &explicit-line-continuation))
+(def &leading-whitespace (&let [col0 (&fold &leading-whitespace-continued + 0)
+                                col1 &leading-whitespace-raw] (+ col0 col1)))
 
 (defn &indent [column]
-  (fn [[in out [top :as is] ds :as σ]]
-    (let [pos (in-position in)
+  (fn [[in pp out [top :as is] ds :as σ]] ;; match State
+    (let [pos (σ-position σ)
           info [*file* pos pos]
           tok+ #(conj % [%2 nil info])]
       (if (> column top)
-        [nil [in (tok+ out :indent) (conj is column) ds]]
-        (loop [[top & ris :as is] is
-               out out]
+        [nil (mkσ in pp (tok+ out :indent) (conj is column) ds)]
+        (loop [[top & ris :as nis] is
+               nout out]
           (cond
-           (= column top) [nil [in out is ds]]
+           (= column top) [nil (mkσ in pp nout nis ds)]
            (or (empty? ris) (> column top)) ((&error {:r "invalid dedentation"}) σ)
            :else (recur ris (tok+ out :dedent))))))))
 
-(defn char-range [first last]
-  (map char (range (int first) (inc (int last)))))
-
+(defn char-range [first last] (map char (range (int first) (inc (int last)))))
 (def uppercase (into #{} (char-range \A \Z)))
 (def lowercase (into #{} (char-range \a \z)))
 (def digits (into #{} (char-range \0 \9)))
@@ -214,36 +179,26 @@
           [k nil] ;; skylark keywords as clojure symbols
           [:id s]))) ;; identifiers as strings (for now... can be interned later)
 
-(defn char-lower-case [c]
-  (when c (char (java.lang.Character/toLowerCase (int c)))))
-
+(defn char-lower-case [c] (when c (char (java.lang.Character/toLowerCase (int c)))))
 (def char-name-chars (set/union uppercase #{\space}))
-
 (def &named-char
-  (&let
-    [  (&char= \{)
-     name (&chars (&char-if char-name-chars))
-     _ (&char= \})
-       (&error {:r "Not implemented yet" :function '&named-char :name name})]
-    nil))
+  (&let [  (&char= \{)
+         name (&chars (&char-if char-name-chars))
+         _ (&char= \})
+           (&error {:r "Not implemented yet" :function '&named-char :name name})]))
 
-(defmacro int<-digits [base & digits]
-  (reduce #(do `(+ (* ~% ~base) ~%2)) digits))
+(defmacro int<-digits [base & digits] (reduce #(do `(+ (* ~% ~base) ~%2)) digits))
 
 (defn octal-digit [c]
   (when-let [n (and c (int c))]
     (when (<= (int \0) n (int \7)) (- n (int \0)))))
-
 (def &octal-digit (&let [c &read-char] (or (octal-digit c) (fail))))
-
 (def &octal-char
-  (&let [o0 &octal-digit o1 &octal-digit o2 &octal-digit]
-     (char (int<-digits 8 o0 o1 o2))))
+  (&let [o0 &octal-digit o1 &octal-digit o2 &octal-digit] (char (int<-digits 8 o0 o1 o2))))
 
 (defn decimal-digit [c]
   (when-let [n (and c (int c))]
     (when (<= (int \0) n (int \9)) (- n (int \0)))))
-
 (def &decimal-digit (&let [c &read-char] (or (decimal-digit c) (fail))))
 
 (defn hexadecimal-digit [c]
@@ -251,17 +206,12 @@
     (cond (<= (int \0) n (int \9)) (- n (int \0))
           (<= (int \a) n (int \f)) (+ n (- 10 (int \a)))
           (<= (int \A) n (int \F)) (+ n (- 10 (int \A))))))
-
 (def &hexadecimal-digit (&let [c &read-char] (or (hexadecimal-digit c) (fail))))
-
 (def &latin1-char
-  (&let [x0 &hexadecimal-digit x1 &hexadecimal-digit]
-     (char (int<-digits 16 x0 x1))))
-
+  (&let [x0 &hexadecimal-digit x1 &hexadecimal-digit] (char (int<-digits 16 x0 x1))))
 (def &unicode-char-16
   (&let [x0 &hexadecimal-digit x1 &hexadecimal-digit x2 &hexadecimal-digit x3 &hexadecimal-digit]
      (char (int<-digits 16 x0 x1 x2 x3))))
-
 (def &unicode-char-32
   (&let [x0 &hexadecimal-digit x1 &hexadecimal-digit x2 &hexadecimal-digit x3 &hexadecimal-digit
          x4 &hexadecimal-digit x5 &hexadecimal-digit x6 &hexadecimal-digit x7 &hexadecimal-digit]
@@ -289,8 +239,7 @@
           \x &latin1-char ;; \xhh Character with hex value hh
           \u (if b &fail &unicode-char-16) ;; \uxxxx Character with 16-bit hex value xxxx
           \U (if b &fail &unicode-char-32) ;; \Uxxxxxxxx Character with 32-bit hex value xxxxxxxx
-          (if (octal-digit c) &octal-char &fail)))]
-   x))
+          (if (octal-digit c) &octal-char &fail)))]))
 
 (defn ascii-char? [c] (and (char? c) (< (int c) 128)))
 
@@ -337,8 +286,7 @@
 (defn &exponent [prefix]
   (&let [c (&char-if #{\e \E})
          s (&optional (&char-if #{\+ \-}))
-         e (&intpart (list* s c prefix))]
-        e))
+         e (&intpart (list* s c prefix))]))
 
 (def &point-float
   (&or (&bind (&optional (&intpart ())) &fraction)
@@ -349,7 +297,7 @@
 
 (def &float-literal
   (&let [x (&or &exponent-float &point-float)]
-     [:float (Double/parseDouble (stringify x))]))
+        [:float (Double/parseDouble (stringify x))]))
 
 (def &decimal-integer
   (&chars (&char-if decimal-digit) '("10r")))
@@ -373,9 +321,7 @@
                                           ;; (octal-digit c) &octal-integer ;; Python 2 ism
                                           :else (&do (&repeat (&char= \0)) (&return "0")))))
             (decimal-digit c) &decimal-integer
-            :else &fail)
-         ;; _ (&optional (&char-if #{\l \L})) ; Python 2 ism
-         ]
+            :else &fail)]
     [:integer (edn/read-string i)]))
 
 (def &numeric-literal
@@ -406,28 +352,28 @@
 
 (def &delimiter-or-operator
   (&let [x (&or* (map (fn [[s x]] (&do (&string= s) (&return x))) delimiters-and-operators))]
-    [x nil]))
+        [x nil]))
 
 (def paren-closer {\( \) \[ \] \{ \}})
 
 (def &paren
   (&or
    (&bind (&char-if #{\( \[ \{})
-          #(fn [[in out is ds]]
-             [[% nil] [in out is (conj ds (paren-closer %))]]))
+          #(fn [[in pp out is ds]] ;; match State
+             [[% nil] (mkσ in pp out is (conj ds (paren-closer %)))]))
    (&bind (&char-if #{\) \] \}})
-          #(fn [[in out is ds :as σ]]
+          #(fn [[in pp out is ds :as σ]]
              [[% nil]
-              [in out is (if (= % (first ds)) (rest ds) ((&error {:r "Unmatched delimiter"}) σ))]]))))
+              (mkσ in pp out is
+                   (if (= % (first ds)) (rest ds) ((&error {:r "Unmatched delimiter"}) σ)))]))))
 
-(def &token
+(def &token ;; accepts a token and emits it.
   (&let
    [start &position
     [type data] (&or &string-literal &numeric-literal
                      &paren &ident-or-keyword &delimiter-or-operator)
     end &position
-      (&emit [type data [*file* start end]])]
-   nil))
+    x (&emit [type data [*file* start end]])]))
 
 (def &logical-line
   (&let
@@ -439,43 +385,22 @@
              (&repeat (&do &token &whitespace))
              &comment-eol
              (&bind &position
-                       (fn [pos] (&emit [:newline nil [*file* pos pos]])))))]
+                    (fn [pos] (&emit [:newline nil [*file* pos pos]])))))]
     nil))
 
-(defn &finish [[in out is ds :as σ]]
-  (let [pos (in-position in)
+(defn &finish [[in pp out is ds :as σ]] ;; match State
+  (let [pos (σ-position σ)
         info [*file* pos pos]
         tok+ #(conj % [%2 nil info])]
     (loop [[top & ris] is
            out out]
       (if (> top 1) (recur ris (tok+ out :dedent))
           [(reverse (tok+ out :endmarker))
-           [in () '(0) ds]]))))
+           (mkσ in pp () '(0) ds)]))))
 
 (def &python
   (&do (&repeat &logical-line) &eof &finish))
 
 (defn python-lexer [input]
-  (first (&python (init-state input))))
+  (first (&python (mkσ input))))
 
-(comment
-  (defn tryf [fun] (try (fun) (catch clojure.lang.ExceptionInfo x (.data x))))
-
-  (defn test-lex* [input] (tryf #(python-lexer input)))
-
-  (defn test-lex [input] (map (fn [[a b _]] [a b]) (test-lex* input)))
-
-  (defn test& [l input] (tryf #(l (init-state input))))
-
-  (test-lex "
-def hello (world, *more)
-  print()
-  \"a b\" + 'c d' + \\
-  foo['abcd',
-bar, \"1 2 3\", 0, 1, [ 2, 03, 0b101, 0x7, 0o13, 0O15, 0X11 ],
-12.345e+67, 1., 1.0, 10e-1, .1e1, .01e+2, 1+.5j, -1,
-     # comment
-  baz]
-def quux ()
-  {ur\"x\": \"a\"}")
-);comment

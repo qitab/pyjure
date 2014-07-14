@@ -1,6 +1,6 @@
 (ns skylark.parser
   (:require [skylark.lexer :as lex])
-  (:use [skylark.lexer :refer [&return &bind &do]])
+  (:use [skylark.lexer :refer [&return &bind &do &do1]])
   (:require [skylark.semantics :as s])
   (:require [clojure.string :as str])
   (:require [clojure.set :as set])
@@ -82,8 +82,6 @@
   `(&let ~bindings (~fun ~@vars))))
 
 (defmacro &vector [& ms] `(&lift vector ~@ms))
-
-(defmacro &do1 [m & ms] `(&let [~'x# ~m ~'_ (&do ~@ms)] ~'x#))
 
 (defn &optional [m]
   (&or m &nil))
@@ -473,24 +471,4 @@
 
 (defn python-parser [input]
   (first (&file-input (parser-input input))))
-
-(comment
-  (defn tryf [fun] (try (fun) (catch clojure.lang.ExceptionInfo x (.data x))))
-
-  (defn test-parse [input] (tryf #(python-parser input)))
-
-  (defn test& [l input] (tryf #(l (parser-input input))))
-
-  (test-parse "
-def hello (world, *more)
-  print()
-  \"a b\" + 'c d' + \\
-  foo['abcd',
-bar, \"1 2 3\", 0, 1, [ 2, 03, 0b101, 0x7, 0o13, 0O15, 0X11 ],
-12.345e+67, 1., 1.0, 10e-1, .1e1, .01e+2, 1+.5j, -1,
-     # comment
-  baz]
-def quux ()
-  {ur\"x\": \"a\"}")
-);comment
 
