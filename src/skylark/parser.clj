@@ -31,6 +31,9 @@
 
 
 ;;; Basic monad constructors
+(defn σ-in [σ] (σ 0))
+(defn σ-prev-info [σ] (σ 1))
+
 (def fail-msg "python parser failure")
 (defn fail
   ;; For more efficient failing, we ought to use a monad that knows about continuations
@@ -65,7 +68,11 @@
     m-zero (&error)
     m-plus &or ])
 
-(defmacro &let [& r] `(domonad parser-m ~@r))
+(defmacro &let
+  ([bindings]
+     `(&let ~bindings ;; return the last result that is not _ or a keyword
+            ~(lex/find-if #(not (or (= % '_) (keyword? %))) (reverse (map first (partition 2 bindings))))))
+  ([bindings result] `(domonad parser-m ~bindings ~result)))
 
 ;;; Monadic combinators
 
@@ -114,17 +121,19 @@
 
 
 (defn &prev-info [[_ info :as σ]] [info σ])
-(defn &next-info [[in _ :as σ]]
-  (match in [[_ _ info]] info _ nil))
+(defn &next-info [σ]
+  [(match (σ-in σ) [[_ _ info]] info
+          _ (let [[file _ end] (σ-prev-info σ)] [file end end]))
+   σ])
 
 (defn merge-info [[file start-pos _] [filetoo _ end-pos]]
-  {:pre (= file filetoo)}
+  {:pre [(= file filetoo)]}
   [file start-pos end-pos])
 
 (defmacro &leti [bindings value]
   ;; not hygienic: exposes bindings to start& end& info&
-  `(domonad parser-m ~(into `[~'start& &next-info] (into bindings `[~'end& &prev-info]))
-            (let [~'info& (merge-info ~'start& ~'end&)] ~value)))
+  `(&let ~(into `[~'start& &next-info] (into bindings `[~'end& &prev-info]))
+         (let [~'info& (merge-info ~'start& ~'end&)] ~value)))
 (defmacro &letx [bindings value]
   `(&leti ~bindings (let [~'v& ~value] (and ~'v& (conj ~'v& ~'info&)))))
 
@@ -296,7 +305,7 @@
 (def &comp-op (&or (&letx [_ (&type 'not) _ (&type 'in)] ['not-in nil])
                    (&letx [_ (&type 'is) _ (&type 'not)] ['is_not nil])
                    (&type-if '#{lt gt eq ge le ne in is})))
-(def &comparison (&multi-op-expr 'comparison &expr &comp-op))
+(def &comparison (&multi-op-expr 'comparison &comp-op &expr))
 (def &not-test (&unary-op-expr #{not} &comparison))
 (def &and-test (&op-expr 'and &not-test))
 (def &or-test (&op-expr 'or &and-test))

@@ -9,6 +9,7 @@
                  [leijure/delta-position "0.1.0"]
 
                  ;;; Not using these, but experimenting...
+                 [org.clojure/tools.trace "0.7.8"]
                  [org.clojure/math.numeric-tower "0.0.4"]
                  [org.clojure/core.match "0.2.2-SNAPSHOT"]
                  [matchure "0.10.1"]

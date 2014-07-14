@@ -1,6 +1,9 @@
 (ns skylark.parser-test
   (:use [skylark.parser])
   (:use [clojure.algo.monads])
+  (:use [clojure.tools.trace])
+  (:use [clojure.tools.nrepl])
+  (:use [clojure.repl])
   (:use [clojure.test]))
 
 (defn tryf [fun] (try (fun) (catch clojure.lang.ExceptionInfo x (.data x))))
