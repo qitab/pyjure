@@ -15,7 +15,7 @@
 
 (defn test-lex [input] (map simplify (test-lex* input)))
 
-(defn test& [l input] (tryf #(l (mkσ input))))
+(defn test& [l input] (tryf #(l (mkΣ input))))
 
 (deftest lexer-test
   (set! *file* nil)

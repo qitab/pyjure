@@ -31,26 +31,17 @@
 
 
 ;;; Basic monad constructors
-(defn σ-in [σ] (σ 0))
-(defn σ-prev-info [σ] (σ 1))
+(defrecord Σ [in prev-info]) ; our State
 
 (def fail-msg "python parser failure")
 (defn fail
-  ;; For more efficient failing, we ought to use a monad that knows about continuations
   ([] (fail {}))
   ([details] (throw (clojure.lang.ExceptionInfo. fail-msg details))))
-
 (defn &error
-  ([]
-     (&error {}))
-  ([details]
-     (fn [[_ info]]
-       (fail (conj details [:info info])))))
+  ([] (&error {}))
+  ([details] (fn [σ] (fail (conj details [:info (:prev-info σ)])))))
 (def &fail (&error))
-(defn try-parse [f σ]
-  (try (f σ)
-       (catch clojure.lang.ExceptionInfo x
-         (when-not (= (.getMessage x) fail-msg) (throw x)))))
+
 (defn &or* [ls]
   (fn [σ]
     (loop [l ls]
@@ -58,16 +49,12 @@
           (or (try-parse (first l) σ)
               (recur (rest l)))))))
 (defn &or [& ls] (&or* ls))
-(defn &not [l] ;; lookahead that l does not appear here
-  (fn [σ] (if (try-parse l σ) (fail) [nil σ])))
-(def &nil (&return nil))
 
 (defmonad parser-m
   [ m-result &return
     m-bind &bind
     m-zero (&error)
     m-plus &or ])
-
 (defmacro &let
   ([bindings]
      `(&let ~bindings ;; return the last result that is not _ or a keyword
@@ -76,56 +63,47 @@
 
 ;;; Monadic combinators
 
+(defn try-parse [f σ]
+  (try (f σ)
+       (catch clojure.lang.ExceptionInfo x
+         (when-not (= (.getMessage x) fail-msg) (throw x)))))
+(defn &not [l] ;; lookahead that l does not appear here
+  (fn [σ] (if (try-parse l σ) (fail) [nil σ])))
+(def &nil (&return nil))
 (defn &lift-f
   ([fun] (&return (fun)))
   ([fun m] (&bind m (fn [x] (&return (fun x)))))
   ([fun m & ms] (apply &lift-f (fn [x] (partial fun x)) ms)))
-
 (defn &vector-f [& ms] (apply &lift-f ms))
-
 (defmacro &lift [fun & ms]
   (let [vars (map #(do % (gensym)) ms)
         bindings (into [] (mapcat list vars ms))]
   `(&let ~bindings (~fun ~@vars))))
-
 (defmacro &vector [& ms] `(&lift vector ~@ms))
-
-(defn &optional [m]
-  (&or m &nil))
-
+(defn &optional [m] (&or m &nil))
 (defn &fold [m f a]
   (&or (&bind m #(&fold m f (f a %))) (&return a)))
-
 (defn &list
   ([m] (&list m ()))
   ([m a] (&let [r (&fold m conj a)] (reverse r))))
-
 (defn &non-empty-list [m] (&bind m (fn [a] (&list m (list a)))))
-
-(defn &count
-  ([m] (&count m 0))
-  ([m a] (&fold m inc a)))
-
-(defn &repeat [m]
-  (&fold m (constantly nil) nil))
+(defn &repeat [m] (&fold m (constantly nil) nil))
 
 
 ;;; Parsing tokens and location information
 
-(defn &token [[[[_ _ info :as tok] & rest] _]]
-  [tok [rest info]])
+(defn &token [{[[_ _ info :as tok] & rest] :in}] [tok (->Σ rest info)])
 (defn &type-if [pred]
-  (fn [[[[type _ info :as tok] & rest] _]] (if (pred type) [tok [rest info]] (fail))))
+  (fn [{[[type _ info :as tok] & rest] :in}] (if (pred type) [tok (->Σ rest info)] (fail))))
 (defn &type [t] (&type-if #(= % t)))
 (defn &type-if-not [pred] (&type-if #(not (pred %))))
 
-
-(defn &prev-info [[_ info :as σ]] [info σ])
+(defn &prev-info [σ] [(:prev-info σ) σ])
 (defn &next-info [σ]
-  [(match (σ-in σ) [[_ _ info]] info
-          _ (let [[file _ end] (σ-prev-info σ)] [file end end]))
+  [(match (:in σ)
+          [[_ _ info]] info
+          _ (let [[file _ end] (:prev-info σ)] [file end end]))
    σ])
-
 (defn merge-info [[file start-pos _] [filetoo _ end-pos]]
   {:pre [(= file filetoo)]}
   [file start-pos end-pos])
@@ -207,9 +185,11 @@
 ;;; Our Pythonic grammar
 
 ;; We need to declare forward references.
-(defmacro def-forward [& names] `(do ~@(map #(do `(defn ~% [~'σ] ((deref (ref '~%)) ~'σ))) names)))
-(def-forward &test &test-nocond &test-star-expr &exprlist &factor
-  &comp-iter &simple-statement &statement &comp-for)
+(defmacro def-forward [& names]
+  `(do ~@(map #(do `(defn ~% [~'σ] ((deref (ref '~%)) ~'σ))) names)))
+(def-forward
+  &test &test-nocond &test-star-expr &exprlist &factor
+  &comp-iter &comp-for &simple-statement &statement)
 
 (def &testlist (&non-empty-maybe-terminated-list &test))
 
