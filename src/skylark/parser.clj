@@ -183,31 +183,32 @@
 
 (def &testlist (&tuple-or-singleton &test))
 
-(defn &argslist [arg defaults]
+(defn &argslist [arg rarg defaults]
   ;; NB: Like Python 3, unlike Python 2, we don't allow destructuring of arguments
   (let [&args (if defaults
                 (&non-empty-separated-list (&vector arg (&optional (&do (&type 'assign) &test))))
                 (&non-empty-separated-list arg))]
     (&let [[positional-args more]
-           (&or (&optional (&vector &args &optional-comma))
+           (&or (&vector &args &optional-comma)
                 (&return [nil true]))
            [rest-arg yetmore]
-           (if more (&or (&optional (&vector (&do (&type 'mul) &name) &optional-comma))
-                       (&return [nil more]))
+           (if more (&or (&vector (&do (&type 'mul) rarg) &optional-comma)
+                         (&return [nil more]))
                (&return [nil nil]))
            [more-args stillmore]
            (if (and rest-arg yetmore)
-             (&or (&optional (&vector &args &optional-comma))
+             (&or (&vector &args &optional-comma)
                   (&return [nil yetmore]))
              (&return [nil nil]))
            keyword-arg
-           (if stillmore (&optional (&do (&type 'pow) &name)) &nil)
-           _ (if (and (nil? keyword-arg) (= stillmore 'comma)) &fail &nil)]
+           (if stillmore (&optional (&do (&type 'pow) rarg)) &nil)
+           _ (if (and (nil? keyword-arg) (vector? stillmore)) &fail &nil)]
           [positional-args rest-arg more-args keyword-arg])))
 
 ;; Note: these correspond to _optional_ [*argslist] in the python grammar.
-(def &varargslist (&argslist &name true))
-(def &typed-args-list (&argslist (&vector &name (&optional (&do &colon &test))) true))
+(def &varargslist (&argslist &name &name true))
+(def &typed-arg (&vector &name (&optional (&do &colon &test))))
+(def &typed-args-list (&argslist &typed-arg &typed-arg true))
 
 (defn join-bytes [arrays]
   (let [sizes (map count arrays)
@@ -230,9 +231,11 @@
 
 ;; The reason that keywords are test nodes instead of NAME is that using NAME
 ;; results in an ambiguity. ast.c makes sure it's a NAME.
-(def &argument (&or (&mod-expr &test &comp-for #(do ['comprehension ['argument % %2]]))
-                    (&vector &test (&do (&type 'assign) &test)))) ;; Really [NAME '='] test
-(def &arglist (&argslist &argument false))
+(def &argument (&mod-expr &test (&or &comp-for (&prefixed 'assign &test))
+                          #(if (= (first %2) 'assign)
+                             ['assign [% (second %2)]]
+                             ['comprehension ['argument % %2]])))
+(def &arglist (&argslist &argument &test false))
 
 (def &slice-op (&do &colon (&optional &test)))
 (def &subscript (&or &test

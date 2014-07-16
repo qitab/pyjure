@@ -84,6 +84,7 @@
 (defn &optional [m] (&or m &nil))
 (defn &fold [m f a] (&or (&bind m #(&fold m f (f a %))) (&return a)))
 (defn &conj* [m a] (&fold m conj a))
+(defn &conj+ [m a] (&let [x m f (&conj* m (conj a x))]))
 (defn &repeat [m] (&fold m (constantly nil) nil))
 
 ;;; Basic input
@@ -276,7 +277,7 @@
    [(if b :bytes :string) s]))
 
 (defn &intpart [prefix]
-  (&conj* (&char-if decimal-digit) prefix))
+  (&conj+ (&char-if decimal-digit) prefix))
 
 (defn &fraction [prefix]
   (&do (&char= \.) (&intpart (conj prefix \.))))
