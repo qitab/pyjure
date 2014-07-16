@@ -142,13 +142,9 @@
           (&return ()))))
 
 (defn &tuple-or-singleton [m] ;; have expr-context :load :store :del :aug-load :aug-store :param ???
-  (&letx [t (&or (&let [[type data _ :as x] (&non-empty-separated-list m)
-                        s &optional-comma]
-                       (if (and (not (empty? x)) (empty? (rest x)))
-                         [:singleton x] ;; strip info, will be added by caller
-                         [:tuple x]))
-                 &nil)]
-         t))
+  (&leti [[[type data _ :as x] :as l] (&non-empty-separated-list m)
+          s &optional-comma]
+         (if (and (empty? (rest l)) (nil? s)) x [:tuple l info&])))
 
 (def &NIY &fail)
 (defn &paren
@@ -185,7 +181,7 @@
   &test &test-nocond &test-star-expr &exprlist &factor
   &comp-iter &comp-for &simple-statement &statement)
 
-(def &testlist (&non-empty-maybe-terminated-list &test))
+(def &testlist (&tuple-or-singleton &test))
 
 (defn &argslist [arg defaults]
   ;; NB: Like Python 3, unlike Python 2, we don't allow destructuring of arguments
@@ -330,7 +326,7 @@
 (def &assert-statement (&prefixed-vector 'assert &test (&optional &test)))
 
 (def &test-star-expr (&or &test &star-expr))
-(def &testlist-star-expr (&non-empty-maybe-terminated-list &test-star-expr))
+(def &testlist-star-expr (&tuple-or-singleton &test-star-expr))
 
 (def &expr-statement
   (&leti [x &testlist-star-expr
@@ -378,7 +374,8 @@
        &import-statement &global-statement &nonlocal-statement &assert-statement))
 
 (def &simple-statement
-  (&do1 (&non-empty-maybe-terminated-list &small-statement (&type 'semicolon)) &newline))
+  (&leti [l (&non-empty-maybe-terminated-list &small-statement (&type 'semicolon)) _ &newline]
+         (if (empty? (rest l)) (first l) [:progn l info&])))
 
 (def &if-statement
   (&prefixed-vector 'if
