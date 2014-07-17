@@ -1,6 +1,6 @@
 (ns skylark.lexer
   (:require [leijure.delta-position :as delta])
-  ;;(:require [skylark.semantics :as s])
+  (:require [skylark.semantics :as s])
   (:require [clojure.string :as str])
   (:require [clojure.set :as set])
   (:require [clojure.edn :as edn])
@@ -161,6 +161,8 @@
 (def letters_ (set/union uppercase lowercase #{\_}))
 (def letters_digits (set/union letters_ digits))
 
+(defn sym [x] (keyword x)) ;; (symbol "skylark.semantics" x)
+
 (def keywords ;; keywords in the Python 3 sense, here symbols on the Clojure side.
   (let [l '("False" "None" "True"
             "and" "as" "assert" "break" "class" "continue"
@@ -168,7 +170,7 @@
             "finally" "for" "from" "global" "if" "import" "in" "is"
             "lambda" "nonlocal" "not" "or" "pass" "raise" "return" "try"
             "while" "with" "yield")]
-    (into {} (map #(vector % (symbol %)) l))))
+    (into {} (map #(vector % (sym %)) l))))
 
 ;; TODO: python 3 accepts unicode letters, too. See Python 3 documentation above.
 (def &ident-or-keyword
@@ -325,15 +327,18 @@
 
 (def &numeric-literal
   (&let [n (&or &float-literal &integer-literal)
-         j (&optional (&char-if #{\j \J}))]
-     (if j [:imaginary n] n)))
+         j (&optional (&char-if #{\j \J}))
+         info &position]
+        (if j [:imaginary n] n)))
 
 (def delimiters ;; Should we prefix them all with s/ ? Also operators, keywords...
-  '(("," comma) (":" colon) ("." dot) (";" semicolon) ("@" matmul) ("=" assign) ("..." ellipsis)
+  '(("," comma) (":" colon) ("." dot) (";" semicolon)
+    ("@" matmul) ("=" assign) ("..." ellipsis)
     ;; Augmented assignment operators, with the name of corresponding magic operator, as per
     ;; http://www.rafekettler.com/magicmethods.html
     ("+=" iadd) ("-=" isub) ("*=" imul) ("/=" imul) ("//=" ifloordiv) ("%=" imod)
-    ("&=" iand) ("|=" ior) ("^=" ixor) (">>=" irshift) ("<<=" ilshift) ("**=" ipow) ("@=" imatmul)
+    ("&=" iand) ("|=" ior) ("^=" ixor) (">>=" irshift) ("<<=" ilshift)
+    ("**=" ipow) ("@=" imatmul)
     ;; ("`" repr) ;; Python 2 has `x` for repr(x), but it's deprecated and not in Python 3.
     ("->" rarrow))) ;; PEP 3107 syntax to denote function types, yet omitted in Python 3 lexer doc.
 
@@ -347,7 +352,7 @@
 (def delimiters-and-operators
   ;; Order matters: prefixes must come afterwards,
   ;; or we must use a better decision algorithm that knows about prefixes
-  (sort-by #(count (first %)) > (concat delimiters operators)))
+  (map (fn [[s x]] [s (sym x)]) (sort-by #(count (first %)) > (concat delimiters operators))))
 
 (def &delimiter-or-operator
   (&let [x (&or* (map (fn [[s x]] (&do (&string= s) (&return x))) delimiters-and-operators))]
