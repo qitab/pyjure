@@ -1,7 +1,4 @@
 (ns skylark.parser-test
-  (:use [clojure.tools.trace])
-  (:use [clojure.tools.nrepl])
-  (:use [clojure.repl])
   (:use [clojure.test])
   (:use [clojure.algo.monads])
   (:use [clojure.core.match :only [match]])

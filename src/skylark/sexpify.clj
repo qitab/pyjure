@@ -14,7 +14,7 @@
    (letfn [(w ([x] (w x info)) ([x i] (with-meta x {:source-info i})))
            (X* [s] (when s (map X s)))
            (Xvec [s] (vec (X* s)))
-           (Xvec* [s] (map Xvec* s))
+           (Xvec* [s] (map Xvec s))
            (def-arg [[[name type] default]]
              (when-not (nil? name)
                (list 'argument (X name) (X type) (X default))))
@@ -38,7 +38,7 @@
         :lt :gt :eq :ge :le :ne :in :is :not-in :is_not) tag
        (:Expression :Interactive) (X x)
        (:Module :and :and_ :assert :comp-for :comp-if :del :except :for :if :list :global :non-local
-                :or :or_ :pow :progn :raise :select :subscript :set :slice :tuple :while :xor)
+                :or :or_ :pow :progn :raise :select :set :slice :tuple :while :xor)
        (w (cons tag (X* x)))
        (:dict) (w (cons tag (Xvec* x)))
        (:return :not :pos :neg :invert :star) (w (list tag (X x)))
@@ -46,13 +46,16 @@
        (:import) (cons :import x)
        :def
        (let [[name args return-type body decorators] x]
-         (w (list 'def (X name) (def-args args) (X return-type) (X body) (deco decorators))))
+         (w (list :def (X name) (def-args args) (X return-type) (X body) (deco decorators))))
        :class
        (let [[name superclasses body decorators] x]
-         (w (list 'def (X name) (X* superclasses) (X body) (deco decorators))))
+         (w (list :class (X name) (X* superclasses) (X body) (deco decorators))))
        :call
        (let [[fun [args rarg margs kargs]] x]
-         (w (list 'call (X fun) (Xvec args) (X rarg) (Xvec margs) (X kargs))))
+         (w (list :call (X fun) (Xvec args) (X rarg) (Xvec margs) (X kargs))))
+       :subscript
+       (let [[arg indices] x]
+         (w (list :subscript (X arg) (X* indices))))
        :imaginary
        (w (list tag (X (conj x info))))
        :assign
