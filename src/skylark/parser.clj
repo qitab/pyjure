@@ -1,7 +1,7 @@
 (ns skylark.parser
   (:use [clojure.algo.monads])
   (:use [clojure.core.match :only [match]])
-  (:use [skylark.lexer :refer [&return &nil &bind &let &do &do1]])
+  (:use [skylark.parsing])
   (:require [skylark.lexer :as lex])
   (:require [skylark.semantics :as s])
   (:require [clojure.string :as str])
@@ -15,101 +15,36 @@
 ;; Our output is NOT based on the Python AST, but informed by it
 ;; Output AST: https://docs.python.org/2/library/ast.html
 
-;; This parser is written in monadic style.
+;; This parser is written using the parsing monad from parsing.clj, with
 ;; type State = InputStream×LastTokenInfo
-;; monad PythonParser α = State → α×State
 ;;
 ;; The State is what input remains unconsumed from the lexer output,
 ;; a sequence of tokens of the form [type data info],
 ;; where info is of the form [file [start-line start-column] [end-line end-column]]
-;;
-;; Monadic parser entities have the & prefix.
-
-;; TODO: modify the monad so it records the many choices at any given point,
-;; and the choices at the furthest point reach, so that
-;; so that (1) fail doesn't use exceptions, and (2) the final error is at the furthest point.
 
 
 ;;; Basic monad constructors
 (defrecord Σ [in prev-info]) ; our State
 
 (def fail-msg "python parser failure")
-(defn fail
-  ([] (fail {}))
-  ([details] (throw (clojure.lang.ExceptionInfo. fail-msg details))))
-(defn &error
-  ([] (&error {}))
-  ([details] (fn [σ] (fail (conj details [:info (:prev-info σ)])))))
-(def &fail (&error))
 
-(defn try-parse [f σ]
-  (try (f σ)
-       (catch clojure.lang.ExceptionInfo x
-         (when-not (= (.getMessage x) fail-msg) (throw x)))))
-(defn &or* [ls]
-  (fn [σ]
-    (loop [l ls]
-      (if (empty? l) ((&error) σ)
-          (or (try-parse (first l) σ)
-              (recur (rest l)))))))
-(defn &or [& ls] (&or* ls))
-
-(defmonad parser-m
-  [ m-result &return
-    m-bind &bind
-    m-zero (&error)
-    m-plus &or ])
-
-;;; Monadic combinators
-
-(defn &not [l] ;; lookahead that l does not appear here
-  (fn [σ] (if (try-parse l σ) (fail) [nil σ])))
-(defn &lift-f
-  ([fun] (&return (fun)))
-  ([fun m] (&bind m (fn [x] (&return (fun x)))))
-  ([fun m & ms] (&bind m (fn [x] (apply &lift-f (partial fun x) ms)))))
-(defn &vector-f [& ms] (apply &lift-f vector ms))
-(defmacro &lift [fun & ms]
-  (let [vars (map #(do % (gensym)) ms)
-        bindings (into [] (mapcat list vars ms))]
-  `(&let ~bindings (~fun ~@vars))))
-(defmacro &vector [& ms] `(&lift vector ~@ms))
-(defn &optional [m] (&or m &nil))
-(defn &fold [m f a]
-  (&or (&bind m #(&fold m f (f a %))) (&return a)))
-(defn &list
-  ([m] (&list m ()))
-  ([m a] (&let [r (&fold m conj a)] (reverse r))))
-(defn &non-empty-list [m] (&bind m (fn [a] (&list m (list a)))))
-(defn &repeat [m] (&fold m (constantly nil) nil))
+(defmethod fail-message skylark.parser.Σ [σ] fail-msg)
+(defmethod prev-info skylark.parser.Σ [σ] (:prev-info σ))
+(defmethod next-info skylark.parser.Σ [σ]
+  (match (:in σ)
+         [[_ _ info]] info
+         _ (let [[file _ end] (:prev-info σ)] [file end end])))
+(defmethod done? skylark.parser.Σ [σ] (empty? (:in σ)))
 
 
 ;;; Parsing tokens and location information
 
 (defn &token [{[[_ _ info :as tok] & rest] :in}] [tok (->Σ rest info)])
 (defn &type-if [pred]
-  (fn [{[[type _ info :as tok] & rest] :in}] (if (pred type) [tok (->Σ rest info)] (fail))))
+  (fn [{[[type _ info :as tok] & rest] :in :as σ}]
+    (if (pred type) [tok (->Σ rest info)] (&fail σ))))
 (defn &type [t] (&type-if #(= % t)))
 (defn &type-if-not [pred] (&type-if #(not (pred %))))
-
-(defn &prev-info [σ] [(:prev-info σ) σ])
-(defn &next-info [σ]
-  [(match (:in σ)
-          [[_ _ info]] info
-          _ (let [[file _ end] (:prev-info σ)] [file end end]))
-   σ])
-(defn merge-info [[file start-pos _] [filetoo _ end-pos]]
-  {:pre [(= file filetoo)]}
-  [file start-pos end-pos])
-
-(defmacro &leti [bindings value]
-  ;; not hygienic: exposes bindings to start& end& info&
-  `(&let ~(into `[~'start& &next-info] (into bindings `[~'end& &prev-info]))
-         (let [~'info& (merge-info ~'start& ~'end&)] ~value)))
-(defmacro &letx [bindings value]
-  `(&leti ~bindings (let [~'v& ~value] (and ~'v& (conj ~'v& ~'info&)))))
-
-(defn &info [m] (&letx [x m] x))
 
 
 ;;; Parsing utilities
@@ -117,8 +52,8 @@
 (def &comma (&type :comma))
 (def &optional-comma (&optional &comma))
 (def &dot (&type :dot))
-(def &dots0 (&fold (&type-if #{:dot :ellipsis}) #(+ % ({:dot 1 :ellipsis 3} %2)) 0))
-(def &dots (&let [x &dots _ (if (= x 0) &fail &nil)] x))
+(def &dots0 (&fold (&type-if #{:dot :ellipsis}) #(+ % ({:dot 1 :ellipsis 3} (first %2))) 0))
+(def &dots (&let [x &dots0 _ (if (= x 0) &fail &nil)] x))
 (def &colon (&type :colon))
 (def &name (&type :id))
 
@@ -177,6 +112,7 @@
 ;;; Our Pythonic grammar
 
 ;; We need to declare forward references.
+;; Apparently, (declare ...) is not enough here.
 (defmacro def-forward [& names] ;; (symbol (str % '$))
   `(do ~@(map #(do `(defn ~% [~'σ] ((var-get #'~%) ~'σ))) names)))
 (def-forward
@@ -223,7 +159,7 @@
 
 (defn merge-strings [ss]
   (assert (not (empty? ss)))
-  (let [[[b s1 i1 :as fs] rs] ss]
+  (let [[[b s1 i1 :as fs] & rs] ss]
     (loop [sl (list s1) i2 i1 r rs]
       (if (empty? r)
         [b ((if (= b :bytes) join-bytes str/join) (reverse sl)) (merge-info i1 i2)]
@@ -399,7 +335,7 @@
 ;; NB compile.c makes sure that the default except clause is last
 (def &except-clause
   ;; Differs from Python 2
-  (&prefixed :except (&optional (&vector &test (&optional (&type :as) &name)))))
+  (&prefixed :except (&optional (&vector &test (&optional (&do (&type :as) &name))))))
 
 (def &try-statement
   (&prefixed-vector :try &colon-suite

@@ -12,6 +12,17 @@
   (:require [clojure.string :as str])
   (:require [clojure.set :as set]))
 
+;; check out the resources/ dir and clojure.java.io/resource
+(def all-python (-> "skylark/python_test.py" clojure.java.io/resource))
+
+(defn s [file]
+  (binding [*file* file]
+    (->> file slurp Xp)))
+
+(defn foo []
+  (binding [*file* nil]
+    (->> "skylark/foo.py" clojure.java.io/resource slurp Xp)))
+
 (deftest sexpify-test
   (set! *file* nil)
   (testing "parser smoketest"
@@ -26,4 +37,7 @@ bar, \"1 2 3\", 0, 1, [ 2, 3, 0b101, 0x7, 0o13, 0O15, 0X11, ],
   ,baz]
 def quux ():
   {u\"x\": \"a\"}")
-           '(:Module (:def hello [[(argument world nil nil)] (argument more nil) [] nil] nil (:progn (:call print [] nil [] nil) (:add (:add "a b" "c d") (:subscript foo ("abcd" bar "1 2 3" 0 1 (:list 2 3 5 7 11 13 17) 1.2345E68 1.0 1.0 1.0 1.0 1.0 (:add 1 (:imaginary 0.5)) (:neg 1) 1.0 baz)))) ()) (:def quux [[] nil [] nil] nil (:progn (:dict ["x" "a"])) ()))))))
+           '(:Module (:def hello [[(argument world nil nil)] (argument more nil) [] nil] nil (:progn (:call print [] nil [] nil) (:add (:add "a b" "c d") (:subscript foo ("abcd" bar "1 2 3" 0 1 (:list 2 3 5 7 11 13 17) 1.2345E68 1.0 1.0 1.0 1.0 1.0 (:add 1 (:imaginary 0.5)) (:neg 1) 1.0 baz)))) ()) (:def quux [[] nil [] nil] nil (:progn (:dict ["x" "a"])) ())))))
+  (testing "Every python lexing and parsing rule"
+    (is (= (s all-python)
+           '()))))

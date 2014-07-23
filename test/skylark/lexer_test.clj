@@ -1,4 +1,5 @@
 (ns skylark.lexer-test
+  (:use [skylark.parsing])
   (:use [skylark.lexer])
   (:use [clojure.algo.monads])
   (:use [clojure.test]))
@@ -21,7 +22,7 @@
   (set! *file* nil)
   (testing "lexer positions"
     (is (= (test-lex* "hello world\n  foo bar\n")
-           '([:id "hello" [nil [1 0] [1 5]]] [:id "world" [nil [1 6] [1 11]]] [:newline nil [nil [2 0] [2 0]]] [:indent nil [nil [2 2] [2 2]]] [:id "foo" [nil [2 2] [2 5]]] [:id "bar" [nil [2 6] [2 9]]] [:newline nil [nil [2 9] [2 9]]] [:dedent nil [nil [2 9] [2 9]]] [:endmarker nil [nil [2 9] [2 9]]]))))
+           '([:id "hello" [nil [1 0] [1 4]]] [:id "world" [nil [1 6] [1 10]]] [:newline nil [nil [1 11] [1 11]]] [:indent nil [nil [2 2] [2 2]]] [:id "foo" [nil [2 2] [2 4]]] [:id "bar" [nil [2 6] [2 8]]] [:newline nil [nil [2 9] [2 9]]] [:dedent nil [nil [2 9] [2 9]]] [:endmarker nil [nil [2 9] [2 9]]]))))
   (testing "lexer smoketest"
     (is (= (test-lex "
 def hello (world, *more)

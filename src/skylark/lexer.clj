@@ -4,7 +4,8 @@
   (:require [clojure.string :as str])
   (:require [clojure.set :as set])
   (:require [clojure.edn :as edn])
-  (:use [clojure.algo.monads]))
+  (:use [clojure.algo.monads])
+  (:use [skylark.parsing]))
 
 ;; See Python 2 Documentation: https://docs.python.org/2/reference/lexical_analysis.html
 ;; See Python 3 Documentation: https://docs.python.org/3.5/reference/lexical_analysis.html
@@ -22,75 +23,22 @@
 
 (defrecord Σ [in prev-position out indent-stack delim-stack]) ; our State
 
+(def fail-msg "python lexer failure")
+
+(defmethod fail-message skylark.lexer.Σ [σ] fail-msg)
+(defmethod done? skylark.lexer.Σ [σ] (empty? (:in σ)))
+
 (defn in-char [in] (let [[[x]] in] x))
 (defn in-position [in] (let [[[_ l c]] in] [l c]))
 (defn in-column [in] (let [[[_ l c]] in] c))
 
-(defn done? [σ] (empty? (:in σ)))
 (defn position [σ] (if (done? σ) (:prev-position σ) (in-position (:in σ))))
-
-(def fail-msg "python lexer failure")
-(defn fail ;; for richer throws, use slingshot ?
-  ;; For more efficient failing, we ought to use a monad that knows about continuations
-  ([] (fail {}))
-  ([details] (throw (clojure.lang.ExceptionInfo. fail-msg details))))
-
-;; Monadic lexer entities have the & prefix.
-
-(defn &return [α] (fn [σ] [α σ]))
-(def &nil (&return nil))
-(defn &bind
-  ([Tα fTβ] (fn [σ] (let [[α σ] (Tα σ)] ((fTβ α) σ))))
-  ([Tα] Tα)
-  ([] &nil)
-  ([m1 m2 & ms] (reduce &bind (list* m1 m2 ms))))
-
-(defn &error
-  ([] (&error {}))
-  ([details] (fn [σ] (let [[l c] (position σ)]
-                          (fail (conj details [:file *file*] [:line l] [:column c]))))))
-(def &fail (&error))
-(defn try-lex [f σ]
-  (try (f σ) (catch clojure.lang.ExceptionInfo x
-               (when-not (= (.getMessage x) fail-msg) (throw x)))))
-(defn &or* [ls]
-  (fn [σ] (loop [l ls]
-            (if (empty? l) ((&error) σ)
-                (or (try-lex (first l) σ)
-                    (recur (rest l)))))))
-(defn &or [& ls] (&or* ls))
-
-(defmonad lexer-m
-  [ m-result &return
-    m-bind &bind
-    m-zero (&error)
-    m-plus &or ])
-
-(defmacro &do
-  ([] `(&return nil))
-  ([m] m)
-  ([m & ms] `(&bind ~m (fn [~'_] (&do ~@ms)))))
-(defn find-if [pred seq] ;; NB: doesn't distinguish between finding nil and not finding
-  (if (empty? seq) nil (let [x (first seq)] (if (pred x) x (recur pred (rest seq))))))
-(defmacro &let
-  ([bindings]
-     `(&let ~bindings ;; return the last result that is not _ or a keyword
-            ~(find-if #(not (or (= % '_) (keyword? %))) (reverse (map first (partition 2 bindings))))))
-  ([bindings result] `(domonad lexer-m ~bindings ~result)))
-(defmacro &do1 [m & ms] `(&let [~'x# ~m ~'_ (&do ~@ms)]))
-
-(defn &not [l] ;; lookahead that l does not appear here
-  (fn [σ] (if (try-lex l σ) (fail) [nil σ])))
-(defn &optional [m] (&or m &nil))
-(defn &fold [m f a] (&or (&bind m #(&fold m f (f a %))) (&return a)))
-(defn &conj* [m a] (&fold m conj a))
-(defn &conj+ [m a] (&let [x m f (&conj* m (conj a x))]))
-(defn &repeat [m] (&fold m (constantly nil) nil))
+(defmethod prev-info skylark.lexer.Σ [σ] (let [x (:prev-position σ)] [*file* x x]))
+(defmethod next-info skylark.lexer.Σ [σ] (let [x (position σ)] [*file* x x]))
 
 ;;; Basic input
 
 (defn &peek-char [σ] [(in-char (:in σ)) σ])
-(defn &position [σ] [(position σ) σ])
 (defn &column [σ] [(in-column (:in σ)) σ])
 (defn &indent-stack [σ] [(:indent-stack σ) σ])
 (defn &read-char [{in :in :as σ}] [(in-char in) (assoc σ :in (rest in) :prev-position (position σ))])
@@ -193,21 +141,21 @@
 (defn octal-digit [c]
   (when-let [n (and c (int c))]
     (when (<= (int \0) n (int \7)) (- n (int \0)))))
-(def &octal-digit (&let [c &read-char] (or (octal-digit c) (fail))))
+(def &octal-digit (&let [c &read-char x (if (octal-digit c) (&return c) &fail)]))
 (def &octal-char
   (&let [o0 &octal-digit o1 &octal-digit o2 &octal-digit] (char (int<-digits 8 o0 o1 o2))))
 
 (defn decimal-digit [c]
   (when-let [n (and c (int c))]
     (when (<= (int \0) n (int \9)) (- n (int \0)))))
-(def &decimal-digit (&let [c &read-char] (or (decimal-digit c) (fail))))
+(def &decimal-digit (&let [c &read-char x (if (decimal-digit c) (&return c) &fail)]))
 
 (defn hexadecimal-digit [c]
   (when-let [n (and c (int c))]
     (cond (<= (int \0) n (int \9)) (- n (int \0))
           (<= (int \a) n (int \f)) (+ n (- 10 (int \a)))
           (<= (int \A) n (int \F)) (+ n (- 10 (int \A))))))
-(def &hexadecimal-digit (&let [c &read-char] (or (hexadecimal-digit c) (fail))))
+(def &hexadecimal-digit (&let [c &read-char x (if (hexadecimal-digit c) (&return c) &fail)]))
 (def &latin1-char
   (&let [x0 &hexadecimal-digit x1 &hexadecimal-digit] (char (int<-digits 16 x0 x1))))
 (def &unicode-char-16
@@ -327,8 +275,7 @@
 
 (def &numeric-literal
   (&let [n (&or &float-literal &integer-literal)
-         j (&optional (&char-if #{\j \J}))
-         info &position]
+         j (&optional (&char-if #{\j \J}))]
         (if j [:imaginary n] n)))
 
 (def delimiters ;; Should we prefix them all with s/ ? Also operators, keywords...
@@ -372,12 +319,10 @@
                      (if (= % (first ds)) (rest ds) ((&error {:r "Unmatched delimiter"}) σ)))]))))
 
 (def &token ;; accepts a token and emits it.
-  (&let
-   [start &position
-    [type data] (&or &string-literal &numeric-literal
-                     &paren &ident-or-keyword &delimiter-or-operator)
-    end &position
-    x (&emit [type data [*file* start end]])]))
+  (&bind (&letx [[type data] (&or &string-literal &numeric-literal
+                                  &paren &ident-or-keyword &delimiter-or-operator)]
+                [type data])
+         &emit))
 
 (def &logical-line
   (&let
@@ -388,8 +333,7 @@
              (&indent column)
              (&repeat (&do &token &whitespace))
              &comment-eol
-             (&bind &position
-                    (fn [pos] (&emit [:newline nil [*file* pos pos]])))))]
+             (&bind &prev-info (fn [info] (&emit [:newline nil info])))))]
     nil))
 
 (defn &finish [{out :out is :indent-stack :as σ}]
