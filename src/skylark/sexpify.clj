@@ -1,12 +1,7 @@
 (ns skylark.sexpify
-  (:use [clojure.algo.monads])
   (:use [clojure.core.match :only [match]])
   (:require [skylark.parsing :as parsing])
-  (:require [skylark.parser :as p])
-  (:require [skylark.lexer :as l])
-  (:require [skylark.semantics :as s])
-  (:require [clojure.string :as str])
-  (:require [clojure.set :as set]))
+  (:require [skylark.parser :as p]))
 
 (defn X [form]
   (match form

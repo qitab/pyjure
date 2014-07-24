@@ -1,11 +1,8 @@
 (ns skylark.parser
-  (:use [clojure.algo.monads])
   (:use [clojure.core.match :only [match]])
   (:use [skylark.parsing])
   (:require [skylark.lexer :as lex])
-  (:require [skylark.semantics :as s])
-  (:require [clojure.string :as str])
-  (:require [clojure.set :as set]))
+  (:require [clojure.string :as str]))
 
 ;; This is largely based on the Python 3 grammar
 ;; Python 3 grammar: https://docs.python.org/3.5/reference/grammar.html

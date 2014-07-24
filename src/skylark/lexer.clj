@@ -1,10 +1,8 @@
 (ns skylark.lexer
   (:require [leijure.delta-position :as delta])
-  (:require [skylark.semantics :as s])
   (:require [clojure.string :as str])
   (:require [clojure.set :as set])
   (:require [clojure.edn :as edn])
-  (:use [clojure.algo.monads])
   (:use [skylark.parsing]))
 
 ;; See Python 2 Documentation: https://docs.python.org/2/reference/lexical_analysis.html
