@@ -46,9 +46,8 @@
 
 (defn &char-if [pred]
   (&let [x &read-char
-         :if (not (and x (pred x)))
-         :then [_ (&error {:r "expected char" :pred pred})]
-         :else [_ &nil]]))
+         r (if (and x (pred x)) (&return x)
+               (&error {:r "expected char" :pred pred}))]))
 (defn &char-if-not [pred] (&char-if #(not (pred %))))
 (defn &char= [c] (&char-if #(= % c)))
 

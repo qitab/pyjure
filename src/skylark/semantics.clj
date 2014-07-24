@@ -6,7 +6,7 @@
   (:require [skylark.parser :as p])
   (:require [skylark.lexer :as l])
   (:require [skylark.sexpify :as s])
-  (:require [skylark.runtime :as r])
+  (:use [skylark.runtime])
   (:use [clojure.core.match :only [match]]))
 
 
@@ -68,8 +68,11 @@
            (Xarglist [[args rarg margs kargs]]
              [(Xvec args) (X rarg) (Xvec margs) (X kargs)])]))
 
+(def byte-array-class (Class/forName "[B"))
+(defn byte-array? [x] (= (type x) byte-array-class))
+
 (defn literal? [x]
-  (or (integer? x) (float? x) (string? x) (bytes? x)))
+  (or (integer? x) (float? x) (string? x) (byte-array? x)))
 
 (defn C [x E]
   (match [x]
@@ -85,13 +88,13 @@
       (if found? [getter E]
           ;; Not found? Introduce a local binding...
           (NIY)))
-    [((:or :identity :Expression :Interactive) x)] (C x E)
-    [((:or :Module :progn) & xs)]
-    (let [[o E] (reduce (fn [[os E] x] (let [[on En] (C x E)] [(conj os on) En])) ['(do) E] xs)]
-      [(reverse o) E])
-    [((:or ':and ':or :as op) & xs)]
-    (NIY)
-    _ (throw (Throwable. "Invalid form"))))
+;;    [((:or :identity :Expression :Interactive) x)] (C x E)
+;;    [((:or :Module :progn) & xs)]
+;;    (let [[o E] (reduce (fn [[os E] x] (let [[on En] (C x E)] [(conj os on) En])) ['(do) E] xs)]
+;;      [(reverse o) E])
+;;    [((:or ':and ':or :as op) & xs)]
+;;    (NIY)
+    :else (throw (Throwable. "Invalid form"))))
 
 (comment
        (:lt :gt :eq :ge :le :ne :in :is :not-in :is_not) tag
@@ -160,5 +163,4 @@
 
 (defn Cp* [x] (C (s/Xp x) initial-environment))
 (defn Cp [x] (first (Cp* x)))
-
 

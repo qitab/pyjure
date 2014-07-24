@@ -1,5 +1,6 @@
 (ns skylark.parsing
-  (:use [clojure.algo.monads]))
+  ;; (:use [clojure.algo.monads])
+  )
 
 ;; Parsing monad: a state monad with some extensions.
 ;; monad PythonParser α = State → α×State
@@ -16,6 +17,8 @@
 ;; * remember the tree of alternatives at that furthest point?
 ;; Thus, fail can avoid using expensive exceptions, and we get better, useful error messages.
 ;; This may require adding new methods above to store that information in the State.
+
+;; TODO: move this to its own library leijure.parsing under leijure?
 
 (defn &return [α] (fn [σ] [α σ]))
 (def &nil (&return nil))
@@ -43,11 +46,12 @@
                     (recur (rest l)))))))
 (defn &or [& ls] (&or* ls))
 
+(comment ;; if we were to use clojure.algo.monads
 (defmonad parsing-m
   [ m-result &return
     m-bind &bind
     m-zero &fail
-    m-plus &or ])
+    m-plus &or ]))
 
 ;;; Monadic macros
 
@@ -61,7 +65,11 @@
   ([bindings]
      `(&let ~bindings ;; return the last result that is not _ or a keyword
             ~(find-if #(not (or (= % '_) (keyword? %))) (reverse (map first (partition 2 bindings))))))
-  ([bindings result] `(domonad parsing-m ~bindings ~result)))
+  ([bindings result] ;; Same as `(clojure.algo.monads/domonad parsing-m ~bindings ~result)
+     (if (empty? bindings)
+       `(&return ~result) ;; or do we want later binding and use (fn [σ] ~result)?
+       (let [[binding parser & more] bindings]
+         `(&bind ~parser (fn [~binding] (&let ~more ~result)))))))
 (defmacro &do1 [m & ms] `(&let [~'x# ~m ~'_ (&do ~@ms)]))
 
 (defmacro &lift [fun & ms]
@@ -110,3 +118,10 @@
   `(&leti ~bindings (let [~'v& ~value] (and ~'v& (conj ~'v& ~'info&)))))
 (defn &info [m] (&letx [x m] x))
 
+
+;; In a grammar with mutual recursion between non-terminals,
+;; we need to declare forward references to some non-terminals to break cycles.
+(defmacro def-forward [& names] ;; bind the symbol to the var for the symbol, for late binding
+  `(do ~@(map #(do `(do (declare ~%) (def ~% #'~%))) names)))
+;; Alternatively, we can explicitly pass #'&other-non-terminal to your regular combinators
+;; Maybe we should do THAT anyway, for the sake of extensibility or redefinability.

@@ -41,7 +41,6 @@
   (fn [{[[type _ info :as tok] & rest] :in :as σ}]
     (if (pred type) [tok (->Σ rest info)] (&fail σ))))
 (defn &type [t] (&type-if #(= % t)))
-(defn &type-if-not [pred] (&type-if #(not (pred %))))
 
 
 ;;; Parsing utilities
@@ -57,10 +56,6 @@
 (defn &non-empty-separated-list
   ([m] (&non-empty-separated-list m &comma))
   ([m separator] (&bind m (fn [a] (&list (&do separator m) (list a))))))
-
-(defn &separated-list [m separator]
-  (&or (&non-empty-separated-list m separator)
-       (&return ())))
 
 (defn &non-empty-maybe-terminated-list
   ([m] (&non-empty-maybe-terminated-list m &comma))
@@ -78,7 +73,6 @@
           s &optional-comma]
          (if (and (empty? (rest l)) (nil? s)) x [:tuple l info&])))
 
-(def &NIY &fail)
 (defn &paren
   ([m] (&paren \( \) m))
   ([opener closer m] (&let [_ (&type opener) x m _ (&type closer)] x)))
@@ -106,12 +100,30 @@
   (&leti [l (&list (&type-if opmap)) x m]
          (reduce (fn [[_ _ i2 :as x] [op _ i1]] [(opmap op) x (merge-info i1 i2)]) x l)))
 
-;;; Our Pythonic grammar
 
-;; We need to declare forward references.
-;; Apparently, (declare ...) is not enough here.
-(defmacro def-forward [& names] ;; (symbol (str % '$))
-  `(do ~@(map #(do `(defn ~% [~'σ] ((var-get #'~%) ~'σ))) names)))
+(defn join-bytes [arrays]
+  (let [sizes (map count arrays)
+        sizes_r (vec (reductions + sizes))
+        offsets (cons 0 (drop-last sizes_r))
+        total (last sizes_r)
+        out (byte-array total)]
+    (dorun (map #(System/arraycopy %2 0 out %1 %3) offsets arrays sizes))
+    out))
+
+(defn merge-strings [ss]
+  (assert (not (empty? ss)))
+  (let [[[b s1 i1 :as fs] & rs] ss]
+    (loop [sl (list s1) i2 i1 r rs]
+      (if (empty? r)
+        [b ((if (= b :bytes) join-bytes str/join) (reverse sl)) (merge-info i1 i2)]
+        (let [[[b2 s2 i2] r2] r]
+          (assert (= b b2))
+          (recur (cons s2 sl) i2 r2))))))
+
+
+;;; Our Python grammar
+
+;; We need to declare forward references to some combinators to break mutual-recursion cycles
 (def-forward
   &test &test-nocond &test-star-expr &exprlist &factor
   &comp-iter &comp-for &simple-statement &statement)
@@ -144,25 +156,6 @@
 (def &varargslist (&argslist &name &name true))
 (def &typed-arg (&vector &name (&optional (&do &colon &test))))
 (def &typed-args-list (&argslist &typed-arg &typed-arg true))
-
-(defn join-bytes [arrays]
-  (let [sizes (map count arrays)
-        sizes_r (vec (reductions + sizes))
-        offsets (cons 0 (drop-last sizes_r))
-        total (last sizes_r)
-        out (byte-array total)]
-    (dorun (map #(System/arraycopy %2 0 out %1 %3) offsets arrays sizes))
-    out))
-
-(defn merge-strings [ss]
-  (assert (not (empty? ss)))
-  (let [[[b s1 i1 :as fs] & rs] ss]
-    (loop [sl (list s1) i2 i1 r rs]
-      (if (empty? r)
-        [b ((if (= b :bytes) join-bytes str/join) (reverse sl)) (merge-info i1 i2)]
-        (let [[[b2 s2 i2] r2] r]
-          (assert (= b b2))
-          (recur (cons s2 sl) i2 r2))))))
 
 ;; The reason that keywords are test nodes instead of NAME is that using NAME
 ;; results in an ambiguity. ast.c makes sure it's a NAME.
@@ -239,7 +232,6 @@
 (def &suite
   (&or &simple-statement
        (&do &newline (&type :indent) (&do1 (&tag :progn (&non-empty-list &statement)) (&type :dedent)))))
-
 (def &colon-suite (&do &colon &suite))
 
 (def &function-definition
@@ -248,7 +240,6 @@
    (&paren &typed-args-list)
    (&optional (&do (&type :rarrow) &test)) ;; PEP 3107 type annotations: return-type
    &colon-suite))
-
 (def &class-definition ;; Python grammar says testlist, but this is not a tuple-or-singleton
   (&prefixed-vector :class &name (&optional (&paren (&maybe-terminated-list &test))) &colon-suite))
 
@@ -260,10 +251,6 @@
 (def &dotted-as-name (&vector &dotted-name (&optional (&do (&type :as) &name))))
 (def &import-as-names (&non-empty-maybe-terminated-list &import-as-name))
 (def &dotted-as-names (&non-empty-separated-list &dotted-as-name))
-
-(def &global-name (&prefixed :global (&non-empty-separated-list &name)))
-(def &nonlocal-statement (&prefixed :nonlocal (&non-empty-separated-list &name)))
-(def &assert-statement (&prefixed-vector :assert &test (&optional (&do &comma &test))))
 
 (def &test-star-expr (&or &test &star-expr))
 (def &testlist-star-expr (&tuple-or-singleton &test-star-expr))
@@ -281,35 +268,27 @@
 ;; whereas we interpret &exprlist as a &tuple-or-singleton
 (def &del-statement (&prefixed :del (&non-empty-maybe-terminated-list (&or &expr &star-expr))))
 
+(def &global-statement (&prefixed :global (&non-empty-separated-list &name)))
+(def &nonlocal-statement (&prefixed :nonlocal (&non-empty-separated-list &name)))
+(def &assert-statement (&prefixed-vector :assert &test (&optional (&do &comma &test))))
 (def &pass-statement (&type :pass))
-
 (def &break-statement (&type :break))
-
 (def &continue-statement (&type :continue))
-
 (def &return-statement (&prefixed :return (&optional &testlist)))
-
 (def &yield-statement &yield-expr)
-
 (def &raise-statement
-  (&prefixed :raise
-             (&optional (&vector &test (&optional (&do (&type :from) &test))))))
-
+  (&prefixed :raise (&optional (&vector &test (&optional (&do (&type :from) &test))))))
 (def &flow-statement
   (&or &break-statement &continue-statement &return-statement &raise-statement &yield-statement))
 
 (def &import-name (&prefixed :import &dotted-as-names))
-
 (def &import-from
   (&prefixed-vector
    :from
    (&or (&vector &dots0 &dotted-name) (&vector &dots &nil))
    (&do (&type :import)
         (&or (&type :mul) (&paren &import-as-names) &import-as-names))))
-
 (def &import-statement (&or &import-name &import-from))
-
-(def &global-statement (&prefixed :global (&non-empty-separated-list &name)))
 
 (def &small-statement
   (&or &expr-statement &del-statement &pass-statement &flow-statement
@@ -374,8 +353,8 @@
 ;;   &eval-input is the input for the eval() and input() functions.
 
 (def &single-input
-  (&let [x (&or &newline &simple-statement (&do1 &compound-statement &newline))]
-        [:Interactive x]))
+  (&letx [x (&or &newline &simple-statement (&do1 &compound-statement &newline))]
+         [:Interactive x]))
 
 (def &file-input
   (&letx [_ (&repeat &newline)
