@@ -100,7 +100,7 @@
           (cond
            (= column top) [nil (assoc σ :out nout :indent-stack nis)]
            (or (empty? ris) (> column top)) ((&error {:r "invalid dedentation"}) σ)
-           :else (recur ris (tok+ out :dedent))))))))
+           :else (recur ris (tok+ nout :dedent))))))))
 
 (defn char-range [first last] (map char (range (int first) (inc (int last)))))
 (def uppercase (into #{} (char-range \A \Z)))

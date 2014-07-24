@@ -1,5 +1,7 @@
 """Test for python grammar"""
 
+# These all pass. Yay!
+
 import restrictions.suck, enforced, or_unenforced
 from morf.tropmi import *
 from ....dot.ditdot import duties, cause_for, revolution
@@ -50,9 +52,6 @@ def g2(x):
   yield from g1(x)
   yield from g1(2*x)
 
-#------>8------>8------>8------>8------>8------>8------>8------>8------>8------
-# WORKS ABOVE, CURRENTLY FAILS BELOW
-
 def ug1(x):
   return [i*i for i in g2(3) if i%2 == 1 ]
 
@@ -98,6 +97,8 @@ else: print("nope")
 
 class Foo:
   a = 2
+  class Inner(object):
+    b = 3
   def foo(self):
     super(Foo, self).foo(self)
     a *= 3
@@ -109,5 +110,5 @@ class Foo:
     a <<= 3
     a >>= 2
     a %= 91
-  b = c = a+1-2*4**3/5 | 15%7 & ^ -1 << 2 >> 3
+  b = c = a+1-2*4**3/5 | 15%7 & 255 ^ -1 << 2 >> 3
   a = b + c

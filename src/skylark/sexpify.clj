@@ -27,9 +27,8 @@
               (def-xarg rest-arg)
               (vec (map def-arg more-args))
               (def-xarg kw-arg)])
-           (deco [decorators]
-             (map (fn [[name args i]]
-                    (w (list :decorator name (X* args)) i)) decorators))]
+           (Xarglist [[args rarg margs kargs]]
+             [(Xvec args) (X rarg) (Xvec margs) (X kargs)])]
      (case tag
        (:integer :float :string :bytes) x
        (:id) (w (symbol x))
@@ -37,22 +36,25 @@
         :zero-uple :empty-list :empty-dict
         :lt :gt :eq :ge :le :ne :in :is :not-in :is_not) tag
        (:Expression :Interactive) (X x)
-       (:Module :and :and_ :assert :comp-for :comp-if :del :except :for :list :global :non-local
+       (:Module :and :and_ :assert :comp-for :comp-if :del :except :for :list :global :nonlocal
                 :or :or_ :pow :progn :raise :select :set :slice :tuple :while :xor)
        (w (cons tag (X* x)))
        (:dict) (w (cons tag (Xvec* x)))
-       (:return :not :pos :neg :invert :star) (w (list tag (X x)))
+       (:return :not :pos :neg :invert :star :identity) (w (list tag (X x)))
        (:break :continue :pass) (w (list tag))
        (:import) (cons :import (map (fn [[names name]] [(X* names) (X name)]) x))
        :def
        (let [[name args return-type body decorators] x]
-         (w (list :def (X name) (def-args args) (X return-type) (X body) (deco decorators))))
+         (w (list :def (X name) (def-args args) (X return-type) (X body) (X* decorators))))
+       :decorator
+       (let [[name args] x]
+         (w (list :decorator (X* name) (when args (Xarglist args)))))
        :class
        (let [[name superclasses body decorators] x]
-         (w (list :class (X name) (X* superclasses) (X body) (deco decorators))))
+         (w (list :class (X name) (X* superclasses) (X body) (X* decorators))))
        :call
-       (let [[fun [args rarg margs kargs]] x]
-         (w (list :call (X fun) (Xvec args) (X rarg) (Xvec margs) (X kargs))))
+       (let [[fun args] x]
+         (w (list :call (X fun) (Xarglist args))))
        :subscript
        (let [[arg indices] x]
          (w (list :subscript (X arg) (X* indices))))
@@ -91,7 +93,7 @@
          (w (list :try (X body) (Xvec* excepts) (X else) (X finally))))
        :with
        (let [[items body] x]
-         (w (list :with (vec (map (fn [[x y]] [(X x) (X y)]) items)) body)))
+         (w (list :with (vec (map (fn [[x y]] [(X x) (X y)]) items)) (X body))))
        :yield
        (w (if (= (first x) :subiterator)
             (list :yield-from (X (second x)))
@@ -100,8 +102,3 @@
 (defn p [s] (p/python-parser s))
 (defn Xp [s] (X (p/python-parser s)))
 
-(comment
-  (set! *file* nil)
-  (def x0 (p/python-parser "def foo(x): return x*6\nprint(foo(7))\n"))
-  (X x0)
-)

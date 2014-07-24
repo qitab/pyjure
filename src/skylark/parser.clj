@@ -233,7 +233,7 @@
                   #(do [:if [(first %2) % (second %2)]]))
        &lambdef))
 
-(def &exprlist (&non-empty-maybe-terminated-list (&or &expr &star-expr)))
+(def &exprlist (&tuple-or-singleton (&or &expr &star-expr)))
 (def &comp-for (&letx [_ (&type :for) x &exprlist _ (&type :in) y &or-test z (&optional &comp-iter)]
                       [:comp-for [x y z]]))
 (def &comp-if (&letx [_ (&type :if) x &test-nocond y (&optional &comp-iter)] [:comp-if [x y]]))
@@ -252,8 +252,8 @@
    (&optional (&do (&type :rarrow) &test)) ;; PEP 3107 type annotations: return-type
    &colon-suite))
 
-(def &class-definition
-  (&prefixed-vector :class &name (&optional (&paren &arglist)) &colon-suite))
+(def &class-definition ;; Python grammar says testlist, but this is not a tuple-or-singleton
+  (&prefixed-vector :class &name (&optional (&paren (&maybe-terminated-list &test))) &colon-suite))
 
 (def &augassign
   (&type-if #{:iadd :isub :imul :ifloordiv :imod :iand :ior :ixor :irshift :ilshift :ipow}))
@@ -266,7 +266,7 @@
 
 (def &global-name (&prefixed :global (&non-empty-separated-list &name)))
 (def &nonlocal-statement (&prefixed :nonlocal (&non-empty-separated-list &name)))
-(def &assert-statement (&prefixed-vector :assert &test (&optional &test)))
+(def &assert-statement (&prefixed-vector :assert &test (&optional (&do &comma &test))))
 
 (def &test-star-expr (&or &test &star-expr))
 (def &testlist-star-expr (&tuple-or-singleton &test-star-expr))
@@ -280,7 +280,9 @@
                (vector? l) [:augassign-expr [x (first l) (second l)] info&]
                :else [:assign-expr (cons x l) info&])))
 
-(def &del-statement (&prefixed :del &exprlist))
+;; The python grammar specifies exprlist, but we interpret it here as a &n-e-m-t-list,
+;; whereas we interpret &exprlist as a &tuple-or-singleton
+(def &del-statement (&prefixed :del (&non-empty-maybe-terminated-list (&or &expr &star-expr))))
 
 (def &pass-statement (&type :pass))
 
@@ -329,7 +331,7 @@
   (&prefixed-vector :while &test &colon-suite (&optional (&do (&type :else) &colon-suite))))
 
 (def &for-statement
-  (&prefixed-vector :for &exprlist (&do :in &testlist) &colon-suite
+  (&prefixed-vector :for &exprlist (&do (&type :in) &testlist) &colon-suite
                     (&optional (&do (&type :else) &colon-suite))))
 
 ;; NB compile.c makes sure that the default except clause is last
@@ -351,11 +353,11 @@
   (&prefixed-vector :with (&non-empty-separated-list &with-item) &colon-suite))
 
 (def &decorator
-  (&leti [_ (&type :matmul)
+  (&letx [_ (&type :matmul)
           name &dotted-name
           args (&optional (&paren &arglist))
           _ &newline]
-         [name args info&]))
+         [:decorator [name args]]))
 
 (def &definition
   (&leti [decorators (&list &decorator)
