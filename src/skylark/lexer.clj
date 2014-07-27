@@ -3,6 +3,7 @@
   (:require [clojure.string :as str])
   (:require [clojure.set :as set])
   (:require [clojure.edn :as edn])
+  (:use [skylark.utilities])
   (:use [skylark.parsing]))
 
 ;; See Python 2 Documentation: https://docs.python.org/2/reference/lexical_analysis.html
@@ -245,17 +246,20 @@
   (&let [x (&or &exponent-float &point-float)]
         [:float (Double/parseDouble (stringify x))]))
 
+(defn integerize [x]
+  (+ 0N (clojure.core/read-string (stringify x))))
+
 (def &decimal-integer
-  (&chars (&char-if decimal-digit) '("10r")))
+  (&chars (&char-if decimal-digit) '("10r") integerize))
 
 (def &octal-integer
-  (&chars (&char-if octal-digit) '("8r")))
+  (&chars (&char-if octal-digit) '("8r") integerize))
 
 (def &hexadecimal-integer
-  (&chars (&char-if hexadecimal-digit) '("16r")))
+  (&chars (&char-if hexadecimal-digit) '("16r") integerize))
 
 (def &binary-integer
-  (&chars (&char-if #{\0 \1}) '("2r")))
+  (&chars (&char-if #{\0 \1}) '("2r") integerize))
 
 (def &integer-literal
   (&let [c &peek-char
@@ -265,10 +269,10 @@
                                           (#{\x \X} c) (&do &read-char &hexadecimal-integer)
                                           (#{\b \B} c) (&do &read-char &binary-integer)
                                           ;; (octal-digit c) &octal-integer ;; Python 2 ism
-                                          :else (&do (&repeat (&char= \0)) (&return "0")))))
+                                          :else (&do (&repeat (&char= \0)) (&return 0N)))))
             (decimal-digit c) &decimal-integer
             :else &fail)]
-    [:integer (edn/read-string i)]))
+    [:integer i]))
 
 (def &numeric-literal
   (&let [n (&or &float-literal &integer-literal)
@@ -350,5 +354,4 @@
                     (->Σ (delta/positioned-stream input pos) pos () '(0) ())))
 
 (defn python-lexer [input]
-  (first (&python (mkΣ input))))
-
+  (call-with-reader input #(first (&python (mkΣ %)))))

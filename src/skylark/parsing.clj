@@ -1,6 +1,6 @@
 (ns skylark.parsing
-  ;; (:use [clojure.algo.monads])
-  )
+  (:use [skylark.utilities]))
+
 
 ;; Parsing monad: a state monad with some extensions.
 ;; monad PythonParser α = State → α×State
@@ -16,7 +16,9 @@
 ;; * remember the furthest point of parse, and use that for the final error.
 ;; * remember the tree of alternatives at that furthest point?
 ;; Thus, fail can avoid using expensive exceptions, and we get better, useful error messages.
-;; This may require adding new methods above to store that information in the State.
+;; This may require adding new methods above to store that information in the State,
+;; e.g. a defmulti to access or update a slot "control".
+
 
 ;; TODO: move this to its own library leijure.parsing under leijure?
 
@@ -46,14 +48,9 @@
                     (recur (rest l)))))))
 (defn &or [& ls] (&or* ls))
 
-(comment ;; if we were to use clojure.algo.monads
-(defmonad parsing-m
-  [ m-result &return
-    m-bind &bind
-    m-zero &fail
-    m-plus &or ]))
-
 ;;; Monadic macros
+
+;;(clojure.algo.monads/defmonad parsing-m [m-result &return m-bind &bind m-zero &fail m-plus &or]))
 
 (defmacro &do
   ([] `(&return nil))
@@ -120,8 +117,8 @@
 
 
 ;; In a grammar with mutual recursion between non-terminals,
-;; we need to declare forward references to some non-terminals to break cycles.
+;; you need to declare forward references to some non-terminals to break cycles.
 (defmacro def-forward [& names] ;; bind the symbol to the var for the symbol, for late binding
   `(do ~@(map #(do `(do (declare ~%) (def ~% #'~%))) names)))
-;; Alternatively, we can explicitly pass #'&other-non-terminal to your regular combinators
-;; Maybe we should do THAT anyway, for the sake of extensibility or redefinability.
+;; Alternatively, you can explicitly pass #'&other-non-terminal to your regular combinators
+;; Maybe you should do THAT anyway, for the sake of extensibility or redefinability.

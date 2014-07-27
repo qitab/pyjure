@@ -1,5 +1,6 @@
 (ns skylark.parser
   (:use [clojure.core.match :only [match]])
+  (:use [skylark.utilities])
   (:use [skylark.parsing])
   (:require [skylark.lexer :as lex])
   (:require [clojure.string :as str]))
@@ -99,16 +100,6 @@
 (defn &unary-op-expr [opmap m]
   (&leti [l (&list (&type-if opmap)) x m]
          (reduce (fn [[_ _ i2 :as x] [op _ i1]] [(opmap op) x (merge-info i1 i2)]) x l)))
-
-
-(defn join-bytes [arrays]
-  (let [sizes (map count arrays)
-        sizes_r (vec (reductions + sizes))
-        offsets (cons 0 (drop-last sizes_r))
-        total (last sizes_r)
-        out (byte-array total)]
-    (dorun (map #(System/arraycopy %2 0 out %1 %3) offsets arrays sizes))
-    out))
 
 (defn merge-strings [ss]
   (assert (not (empty? ss)))
@@ -369,7 +360,7 @@
         [:Expression x]))
 
 (defn parser-input [input]
-  (->Σ (lex/python-lexer input) [*file* [0 0] [0 0]]))
+  (call-with-reader input #(->Σ (lex/python-lexer %) [*file* [0 0] [0 0]])))
 
 (defn python-parser [input]
   (first (&file-input (parser-input input))))

@@ -6,15 +6,19 @@
   (:require [skylark.parser :as p])
   (:require [skylark.lexer :as l])
   (:require [skylark.sexpify :as s])
-  (:use [skylark.runtime])
-  (:use [clojure.core.match :only [match]]))
+  (:use [clojure.core.match :only [match]])
+  (:use [skylark.utilities])
+  (:use [skylark.runtime]))
 
+;; TODO: rename away this file after it's been determined, since this is just one pass,
+;; will all the passes contributing to the semantics.
+;; Name the pass after something meaningful, if possible.
+
+(defn symbol-getter [class name] (NFN))
 
 ;;; We map Python list to Clojure vector for fast-ish append,
 ;;; Python tuple to Clojure list,
 ;;; Python dict to Clojure map, Python set to Clojure set.
-
-(defn NIY [& args] (throw (Throwable. "Not Implemented Yet")))
 
 ;;; Just like macropy, we have three kinds of macros:
 ;;; expr-macro, block-macro and decorator-macro.
@@ -48,7 +52,6 @@
 (defmacro decorated [decorators definition]
   (reduce decorate definition decorators))
 
-
 (comment
    (letfn [(w ([x] (w x info)) ([x i] (with-meta x {:source-info i})))
            (X* [s] (when s (map X s)))
@@ -68,98 +71,70 @@
            (Xarglist [[args rarg margs kargs]]
              [(Xvec args) (X rarg) (Xvec margs) (X kargs)])]))
 
-(def byte-array-class (Class/forName "[B"))
-(defn byte-array? [x] (= (type x) byte-array-class))
-
 (defn literal? [x]
   (or (integer? x) (float? x) (string? x) (byte-array? x)))
 
+(declare C create-binding)
+
+(defn C* [head xs E]
+  (let [[o E] (reduce (fn [[os E] x] (let [[on En] (C x E)] [(conj os on) En])) [(list head) E] xs)]
+       [(reverse o) E]))
+
+(defn $syntax-error []
+  (throw (Throwable. "Syntax Error")))
+
+(defn runtime-symbol [x]
+  (symbol 'skylark.runtime (str \$ x)))
+
 (defn C [x E]
   (match [x]
+    [([h & _] :seq)]
+    (<- (if (symbol? h)
+          (if-let [[getter found?] (symbol-getter h E)]
+            [getter E]
+            (let [newE (create-binding h E)]
+              [(first (symbol-getter h newE)) newE])))
+        (if (#{:identity :Expression :Interactive} h) (C x E))
+        (if-let [v ({:Module 'do :progn 'do} h)] (C* v (rest x) E))
+        (if (#{:and :or
+               :add :sub :mul :div :floordiv :mod :lshift :rshift
+               :and_ :or_ :xor :pow
+               :not :pos :neg :invert
+               :lt :gt :eq :ge :le :ne :in :is :not-in :is_not ;; magic
+               :assert :pass} h) (C* (runtime-symbol h) (rest x) E))
+        ($syntax-error))
     [x :guard literal?] [x E] ;; :integer :float :string :bytes
-    [:True] [true E]
-    [:False] [false E]
-    [:None] [nil E]
-    [:zero-uple] [() E]
-    [:empty-list] [[] E]
-    [:empty-dict] [{} E]
-    [x :guard symbol?]
-    (let [[getter :as found?] (E x)]
-      (if found? [getter E]
-          ;; Not found? Introduce a local binding...
-          (NIY)))
-;;    [((:or :identity :Expression :Interactive) x)] (C x E)
-;;    [((:or :Module :progn) & xs)]
-;;    (let [[o E] (reduce (fn [[os E] x] (let [[on En] (C x E)] [(conj os on) En])) ['(do) E] xs)]
-;;      [(reverse o) E])
-;;    [((:or ':and ':or :as op) & xs)]
-;;    (NIY)
-    :else (throw (Throwable. "Invalid form"))))
+    [:True] [$True E]
+    [:False] [$False E]
+    [:None] [$None E]
+    [:zero-uple] [$empty-tuple E]
+    [:empty-list] [$empty-list E]
+    [:empty-dict] [$empty-dict E]
+    :else ($syntax-error)))
 
 (comment
-       (:lt :gt :eq :ge :le :ne :in :is :not-in :is_not) tag
-       (:and_ :assert :comp-for :comp-if :del :except :for :list :global :nonlocal
-              :or_ :pow :progn :raise :select :set :slice :tuple :while :xor)
-       (w (cons tag (X* x)))
-       (:dict) (w (cons tag (Xvec* x)))
-       (:return :not :pos :neg :invert :star :identity) (w (list tag (X x)))
-       (:break :continue :pass) (w (list tag))
-       (:import) (cons :import (map (fn [[names name]] [(X* names) (X name)]) x))
-       :def
-       (let [[name args return-type body decorators] x]
-         (w (list :def (X name) (def-args args) (X return-type) (X body) (X* decorators))))
-       :decorator
-       (let [[name args] x]
-         (w (list :decorator (X* name) (when args (Xarglist args)))))
-       :class
-       (let [[name superclasses body decorators] x]
-         (w (list :class (X name) (X* superclasses) (X body) (X* decorators))))
-       :call
-       (let [[fun args] x]
-         (w (list :call (X fun) (Xarglist args))))
-       :subscript
-       (let [[arg indices] x]
-         (w (list :subscript (X arg) (X* indices))))
-       :imaginary
-       (w (list tag (X (conj x info))))
-       :if
-       (let [[clauses else] x]
-         (w (list :if (Xvec* clauses) (X else))))
-       :assign
-       (let [[a b] x]
-         (w (list '= (X a) (X b))))
-       :assign-expr
-       (let [v (Xvec x)]
-         (w (list 'assign (subvec v 0 (dec (count v))) (last v))))
-       :augassign-expr
-       ;; :iadd :isub :imul :imul :ifloordiv :imod :iand :ior :ixor :irshift :ilshift :ipow :imatmul
-       (let [[a op b] x] (w (list (first op) (X a) (X b))))
-       :comparison
-       (let [[a ops] x] (w (list* :comparison (X a) (map Xvec ops))))
-       (:arith-expr :shift-expr :term)
-       ;; :add :sub :mul :div :floordiv :mod :lshift :rshift
-       (let [[[_ _ info :as a0] ops] x]
-         (first (reduce (fn [[a info] [op b]]
-                          (let [i (parsing/merge-info info (b 2))]
-                            [(with-meta (list (first op) a (X b)) {:source-info i}) i]))
-                        [(X a0) info] ops)))
-       :comprehension
-       (let [[kind a for] x] (w (list :comprehension kind (X a) (X for))))
-       :from
-       (let [[[dots names] imports] x]
-         (list :from [dots (X* names)]
-               (if (= (first imports) :mul) :all
-           (Xvec* imports))))
-       :try
-       (let [[body [excepts else finally]] x]
-         (w (list :try (X body) (Xvec* excepts) (X else) (X finally))))
-       :with
-       (let [[items body] x]
-         (w (list :with (vec (map (fn [[x y]] [(X x) (X y)]) items)) (X body))))
-       :yield
-       (w (if (= (first x) :subiterator)
-            (list :yield-from (X (second x)))
-            (list :yield (X x)))))
+  :comp-for :comp-if :del :except :for :list :global :nonlocal
+  :raise :select :set :slice :tuple :while
+  :dict
+  :return :star :identity
+  :break :continue
+  :import
+  :def
+  :decorator
+  :class
+  :call
+  :subscript
+  :imaginary
+  :if
+  =
+  :assign-expr
+  :augassign-expr ;; :iadd :isub :imul :imul :ifloordiv :imod :iand :ior :ixor :irshift :ilshift :ipow :imatmul
+  :comparison
+  :comprehension
+  :from
+  :try
+  :with
+  :yield-from :yield)
 
 (defn Cp* [x] (C (s/Xp x) initial-environment))
 (defn Cp [x] (first (Cp* x)))

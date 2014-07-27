@@ -5,8 +5,7 @@
   (:use [clojure.test]))
 
 (defn foo []
-  (binding [*file* nil]
-    (->> "skylark/foo.py" clojure.java.io/resource slurp python-lexer)))
+  (->> "skylark/foo.py" clojure.java.io/resource python-lexer))
 
 (defn tryf [fun] (try (fun) (catch clojure.lang.ExceptionInfo x (.data x))))
 
@@ -39,7 +38,7 @@ bar, \"1 2 3\", 0, 1, [ 2, 03, 0b101, 0x7, 0o13, 0O15, 0X11 ],
   baz]
 def quux ()
   {ur\"x\": \"a\"}")
-           '(:def [:id "hello"] \( [:id "world"] :comma :mul [:id "more"] \) :newline :indent [:id "print"] \( \) :newline [:string "a b"] :add [:string "c d"] :add [:id "foo"] \[ [:string "abcd"] :comma [:id "bar"] :comma [:string "1 2 3"] :comma [:integer 0] :comma [:integer 1] :comma \[ [:integer 2] :comma [:integer 0] [:integer 3] :comma [:integer 5] :comma [:integer 7] :comma [:integer 11] :comma [:integer 13] :comma [:integer 17] \] :comma [:float 1.2345E68] :comma [:float 1.0] :comma [:float 1.0] :comma [:float 1.0] :comma [:float 1.0] :comma [:float 1.0] :comma [:integer 1] :add [:imaginary [:float 0.5]] :comma :sub [:integer 1] :comma [:float 1.0] :comma [:id "baz"] \] :newline :dedent :def [:id "quux"] \( \) :newline :indent \{ [:id "ur"] [:string "x"] :colon [:string "a"] \} :newline :dedent :endmarker))))
+           '(:def [:id "hello"] \( [:id "world"] :comma :mul [:id "more"] \) :newline :indent [:id "print"] \( \) :newline [:string "a b"] :add [:string "c d"] :add [:id "foo"] \[ [:string "abcd"] :comma [:id "bar"] :comma [:string "1 2 3"] :comma [:integer 0N] :comma [:integer 1N] :comma \[ [:integer 2N] :comma [:integer 0N] [:integer 3N] :comma [:integer 5N] :comma [:integer 7N] :comma [:integer 11N] :comma [:integer 13N] :comma [:integer 17N] \] :comma [:float 1.2345E68] :comma [:float 1.0] :comma [:float 1.0] :comma [:float 1.0] :comma [:float 1.0] :comma [:float 1.0] :comma [:integer 1N] :add [:imaginary [:float 0.5]] :comma :sub [:integer 1N] :comma [:float 1.0] :comma [:id "baz"] \] :newline :dedent :def [:id "quux"] \( \) :newline :indent \{ [:id "ur"] [:string "x"] :colon [:string "a"] \} :newline :dedent :endmarker))))
   (testing "double dedent"
     (is (= (test-lex "
 def f1():
@@ -48,5 +47,5 @@ def f1():
 
 def f2(): pass
 ")
-           '(:def [:id "f1"] \( \) :colon :newline :indent :if [:integer 1] :colon :newline :indent :pass :newline :dedent :dedent :def [:id "f2"] \( \) :colon :pass :newline :endmarker)))))
+           '(:def [:id "f1"] \( \) :colon :newline :indent :if [:integer 1N] :colon :newline :indent :pass :newline :dedent :dedent :def [:id "f2"] \( \) :colon :pass :newline :endmarker)))))
 
