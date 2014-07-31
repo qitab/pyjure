@@ -3,7 +3,7 @@
 
 
 ;; Parsing monad: a state monad with some extensions.
-;; monad PythonParser α = State → α×State
+;; monad Parser α = State → α×State
 ;; The State type ought to define the following methods:
 (defmulti done? class) ;; a boolean true if the input is all consumed
 (defmulti prev-info class) ;; source information at previous point
@@ -18,7 +18,6 @@
 ;; Thus, fail can avoid using expensive exceptions, and we get better, useful error messages.
 ;; This may require adding new methods above to store that information in the State,
 ;; e.g. a defmulti to access or update a slot "control".
-
 
 ;; TODO: move this to its own library leijure.parsing under leijure?
 

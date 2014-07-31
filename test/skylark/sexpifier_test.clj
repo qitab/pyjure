@@ -1,32 +1,24 @@
-(ns skylark.sexpify-test
-  (:use [clojure.tools.trace])
-  (:use [clojure.tools.nrepl])
-  (:use [clojure.repl])
-  (:use [clojure.test])
-  (:use [clojure.algo.monads])
-  (:use [clojure.core.match :only [match]])
-  (:use [skylark.sexpify])
-  (:require [skylark.semantics :as s])
-  (:require [skylark.lexer :as l])
-  (:require [skylark.parser :as p])
-  (:require [clojure.string :as str])
-  (:require [clojure.set :as set]))
+(ns skylark.sexpifier-test
+  (:use [skylark.parsing :only [merge-info]]
+        [clojure.core.match :only [match]]
+        [clojure.test]
+        [skylark.sexpifier])
+  (:require [clojure.string :as str]
+            [clojure.set :as set]
+            [skylark.core :as sky]))
 
 ;; check out the resources/ dir and clojure.java.io/resource
 (def all-python (-> "skylark/python_test.py" clojure.java.io/resource))
 
 (defn s [file]
-  (binding [*file* file]
-    (->> file slurp Xp)))
+  (-> file slurp sky/sexpify))
 
 (defn foo []
-  (binding [*file* nil]
-    (->> "skylark/foo.py" clojure.java.io/resource slurp Xp)))
+  (-> "skylark/foo.py" clojure.java.io/resource s))
 
 (deftest sexpify-test
-  (set! *file* nil)
   (testing "parser smoketest"
-    (is (= (Xp "
+    (is (= (sky/sexpify "
 def hello (world, *more):
   print()
   \"a b\" + 'c d' + \\

@@ -1,13 +1,16 @@
-(ns skylark.sexpify
-  (:use [clojure.core.match :only [match]])
-  (:require [skylark.parsing :as parsing])
-  (:require [skylark.parser :as p]))
+(ns skylark.sexpifier
+  (:use [skylark.parsing :only [merge-info]]
+        [clojure.core.match :only [match]]))
+
+;; The results of parsing is of the form [head args info]
+;; We massage it into (with-meta (cons massaged-head massaged-args) {:source-info info})
 
 (defn X [form]
   (match form
    nil nil
    [tag x info]
-   (letfn [(w ([x] (w x info)) ([x i] (with-meta x {:source-info i})))
+   (letfn [(w ([x] (w x info))
+              ([x i] (with-meta x {:source-info i})))
            (X* [s] (when s (map X s)))
            (Xvec [s] (vec (X* s)))
            (Xvec* [s] (map Xvec s))
@@ -68,12 +71,12 @@
        ;; :iadd :isub :imul :imul :ifloordiv :imod :iand :ior :ixor :irshift :ilshift :ipow :imatmul
        (let [[a op b] x] (w (list (first op) (X a) (X b))))
        :comparison
-       (let [[a ops] x] (w (list* :comparison (X a) (map Xvec ops))))
+       (let [[a ops] x] (w (list* :comparison (X a) (map X* ops))))
        (:arith-expr :shift-expr :term)
        ;; :add :sub :mul :div :floordiv :mod :lshift :rshift
        (let [[[_ _ info :as a0] ops] x]
          (first (reduce (fn [[a info] [op b]]
-                          (let [i (parsing/merge-info info (b 2))]
+                          (let [i (merge-info info (b 2))]
                             [(with-meta (list (first op) a (X b)) {:source-info i}) i]))
                         [(X a0) info] ops)))
        :comprehension
@@ -93,7 +96,4 @@
        (w (if (= (first x) :subiterator)
             (list :yield-from (X (second x)))
             (list :yield (X x))))))))
-
-(defn p [s] (p/python-parser s))
-(defn Xp [s] (X (p/python-parser s)))
 

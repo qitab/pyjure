@@ -1,9 +1,9 @@
 (ns skylark.runtime
-  (:require [clojure.core :as c])
-  (:require [clojure.string :as str])
-  (:require [clojure.set :as set])
-  (:use [clojure.core.match :only [match]])
-  (:use [skylark.utilities]))
+  (:require [clojure.core :as c]
+            [clojure.string :as str]
+            [clojure.set :as set])
+  (:use [clojure.core.match :only [match]]
+        [skylark.utilities]))
 
 (def initial-environment {})
 
@@ -27,18 +27,18 @@
 (def $builtin ;; python builtin types
   {:element? builtin?})
 
-(defn easy-falsy? [x]
+(defn easy-falsity? [x]
   ;; NB: [] catches (), but empty byte-array isn't caught.
   (or (not x) (booleanize (#{[] {} #{} 0 0M 0.0 ""} x))))
 (def $False false)
-(def $easy-falsy ;; python easy falsy
-  {:element? easy-falsy?})
+(def $easy-falsity ;; python easy falsity
+  {:element? easy-falsity?})
 
-(defn easy-truthy? [x]
-  (or (= x true) (and (not (easy-falsy? x)) (builtin? x))))
+(defn easy-truth? [x]
+  (or (= x true) (and (not (easy-falsity? x)) (builtin? x))))
 (def $True true)
-(def $easy-truthy ;; python easy truthy
-  {:element? easy-truthy?})
+(def $easy-truth ;; python easy truth
+  {:element? easy-truth?})
 
 (def $empty-list [])
 (def $list ;; python list
@@ -80,22 +80,22 @@
                 (list (if (= types :else) :else (type-matcher formals types)) expr))
               (partition 2 body)))))
 
-(defn subtly-truthy? [x]
+(defn subtle-truth? [x]
   (let [c ($class x)]
      (if-let [m ($get-method c '__bool__)] (not= $False (m x)) ;; TODO: implement for $bytes
        (if-let [m ($get-method c '__len__)] (not= 0 (m x))
           true))))
 
-(define-operation truthy? [x]
+(define-operation $truth [x]
   [$Boolean] x
-  [$easy-falsy] false
-  [$easy-truthy] true
-  :else (subtly-truthy? x))
+  [$easy-falsity] false
+  [$easy-truth] true
+  :else (subtle-truth? x))
 
 (defmacro $if
   ([] `$None)
   ([else] else)
-  ([test if-true & more] `(if (truthy? ~test) ~if-true ($if ~@more))))
+  ([test if-true & more] `(if ($truth ~test) ~if-true ($if ~@more))))
 
 (defmacro $or
   ([] `$False) ;; unused by Python itself
@@ -117,3 +117,6 @@
    [$set $set] (into x y)
    [$dict $dict] (into x y)
    :else (binary-operation __add__ x y)))
+
+(defn $not [x] (not ($truth x))) ; python: operator.not_(x), but no magic __not__ method delegation.
+

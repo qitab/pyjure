@@ -34,7 +34,7 @@ def eval(x, E):
     raise 'Invalid form %r' % (x,)
 
 def eval_apply(fun, args, E):
-  
+
 
 def test_augassign():
-  x = (y,z,t) = 
+  x = (y,z,t) =

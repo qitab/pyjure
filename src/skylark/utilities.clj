@@ -1,8 +1,4 @@
-(ns skylark.utilities
-  ;;(:require [leijure.delta-position :as delta])
-  (:require [clojure.string :as str])
-  (:require [clojure.set :as set])
-  (:require [clojure.edn :as edn]))
+(ns skylark.utilities)
 
 ;; Miscellaneous general purpose utilities.
 ;; TODO: move them to leijure?
@@ -51,3 +47,6 @@
         out (byte-array total)]
     (dorun (map #(System/arraycopy %2 0 out %1 %3) offsets arrays sizes))
     out))
+
+(defn tryf [fun] (try (fun) (catch clojure.lang.ExceptionInfo x (.data x))))
+

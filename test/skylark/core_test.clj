@@ -1,4 +1,6 @@
 (ns skylark.core-test
-  (:require [clojure.test :refer :all]
-            [skylark.core :refer :all]))
-
+  (:use [clojure.tools.trace]
+        [clojure.tools.nrepl]
+        [clojure.repl]
+        [clojure.test]
+        [skylark.core]))

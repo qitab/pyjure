@@ -1,25 +1,19 @@
 (ns skylark.parser-test
-  (:use [clojure.test])
-  (:use [clojure.algo.monads])
-  (:use [clojure.core.match :only [match]])
-  (:use [skylark.parsing])
-  (:use [skylark.parser])
-  (:require [skylark.semantics :as s])
-  (:require [clojure.string :as str])
-  (:require [clojure.set :as set]))
+  (:use [clojure.test]
+        [clojure.core.match :only [match]]
+        [skylark.utilities]
+        [skylark.parser])
+  (:require [skylark.core :as sky]
+            [clojure.string :as str]))
 
 (defn foo []
-  (binding [*file* nil]
-    (->> "skylark/foo.py" clojure.java.io/resource slurp python-parser)))
+  (->> "skylark/foo.py" clojure.java.io/resource slurp sky/parse))
 
-(defn tryf [fun] (try (fun) (catch clojure.lang.ExceptionInfo x (.data x))))
+(defn test-parse [input] (tryf #(sky/parse input)))
 
-(defn test-parse [input] (tryf #(python-parser input)))
-
-(defn test& [l input] (tryf #(l (parser-input input))))
+(defn test& [l input] (tryf #(l (mkΣ (sky/lex input)))))
 
 (deftest parser-test
-  (set! *file* nil)
   (testing "parser smoketest"
     (is (= (test-parse "
 def hello (world, *more):

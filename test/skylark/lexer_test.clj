@@ -1,15 +1,16 @@
 (ns skylark.lexer-test
+  (:require [leijure.delta-position :as delta])
+  (:require [clojure.string :as str])
+  (:require [clojure.set :as set])
+  (:use [skylark.utilities])
   (:use [skylark.parsing])
   (:use [skylark.lexer])
-  (:use [clojure.algo.monads])
-  (:use [clojure.test]))
+  (:use [clojure.test])
+  (:require [skylark.core :as sky]))
 
-(defn foo []
-  (->> "skylark/foo.py" clojure.java.io/resource python-lexer))
+(defn foo [] (->> "skylark/foo.py" clojure.java.io/resource sky/lex))
 
-(defn tryf [fun] (try (fun) (catch clojure.lang.ExceptionInfo x (.data x))))
-
-(defn test-lex* [input] (tryf #(python-lexer input)))
+(defn test-lex* [input] (tryf #(sky/lex input)))
 
 (defn simplify [[a b pos]]
   (let [[_ [x y] [z t]] pos]
@@ -19,10 +20,9 @@
 
 (defn test-lex [input] (map simplify (test-lex* input)))
 
-(defn test& [l input] (tryf #(l (mkΣ input))))
+(defn test& [l input] (tryf #(l (mkΣ (sky/position-stream input)))))
 
 (deftest lexer-test
-  (set! *file* nil)
   (testing "lexer positions"
     (is (= (test-lex* "hello world\n  foo bar\n")
            '([:id "hello" [nil [1 0] [1 4]]] [:id "world" [nil [1 6] [1 10]]] [:newline nil [nil [1 11] [1 11]]] [:indent nil [nil [2 2] [2 2]]] [:id "foo" [nil [2 2] [2 4]]] [:id "bar" [nil [2 6] [2 8]]] [:newline nil [nil [2 9] [2 9]]] [:dedent nil [nil [2 9] [2 9]]] [:endmarker nil [nil [2 9] [2 9]]]))))

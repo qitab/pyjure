@@ -1,16 +1,15 @@
 (ns skylark.lexer
-  (:require [leijure.delta-position :as delta])
-  (:require [clojure.string :as str])
-  (:require [clojure.set :as set])
-  (:require [clojure.edn :as edn])
-  (:use [skylark.utilities])
-  (:use [skylark.parsing]))
+  (:require [leijure.delta-position :as delta]
+            [clojure.string :as str]
+            [clojure.set :as set])
+  (:use [skylark.utilities]
+        [skylark.parsing]))
 
 ;; See Python 2 Documentation: https://docs.python.org/2/reference/lexical_analysis.html
 ;; See Python 3 Documentation: https://docs.python.org/3.5/reference/lexical_analysis.html
 
 ;; This lexer is written in monadic style using the State monad, where
-;; type State = InputStream×PrevInfo×OutputStream×IndentStack×DelimStack
+;; type State = InputStream×FileName×PrevPosition×OutputStream×IndentStack×DelimStack
 ;; monad PythonLexer α = State → α×State
 ;;
 ;; The output is a sequence of vector of the form: [type data info]
@@ -20,7 +19,7 @@
 
 ;; TODO: use ICU4J to support Python 3 Unicode identifiers.
 
-(defrecord Σ [in prev-position out indent-stack delim-stack]) ; our State
+(defrecord Σ [in file prev-position out indent-stack delim-stack]) ; our State
 
 (def fail-msg "python lexer failure")
 
@@ -32,8 +31,8 @@
 (defn in-column [in] (let [[[_ l c]] in] c))
 
 (defn position [σ] (if (done? σ) (:prev-position σ) (in-position (:in σ))))
-(defmethod prev-info skylark.lexer.Σ [σ] (let [x (:prev-position σ)] [*file* x x]))
-(defmethod next-info skylark.lexer.Σ [σ] (let [x (position σ)] [*file* x x]))
+(defmethod prev-info skylark.lexer.Σ [σ] (let [{x :prev-position f :file} σ] [f x x]))
+(defmethod next-info skylark.lexer.Σ [σ] (let [x (position σ)] [(:file σ) x x]))
 
 ;;; Basic input
 
@@ -89,7 +88,7 @@
 (defn &indent [column]
   (fn [{out :out [top :as is] :indent-stack :as σ}]
     (let [pos (position σ)
-          info [*file* pos pos]
+          info [(:file σ) pos pos]
           tok+ #(conj % [%2 nil info])]
       (if (> column top)
         [nil (assoc σ :out (tok+ out :indent) :indent-stack (conj is column))]
@@ -339,7 +338,7 @@
 
 (defn &finish [{out :out is :indent-stack :as σ}]
   (let [pos (position σ)
-        info [*file* pos pos]
+        info [(:file σ) pos pos]
         tok+ #(conj % [%2 nil info])]
     (loop [[top & ris] is
            out out]
@@ -350,8 +349,11 @@
 (def &python
   (&do (&repeat &logical-line) &eof &finish))
 
-(defn mkΣ [input] (let [pos {:line-offset 1 :column-offset 0}]
-                    (->Σ (delta/positioned-stream input pos) pos () '(0) ())))
+(defn position-stream [[input filename]]
+  [(delta/positioned-stream input {:line-offset 1 :column-offset 0}) filename])
 
-(defn python-lexer [input]
-  (call-with-reader input #(first (&python (mkΣ %)))))
+(defn mkΣ [[positioned-stream filename]]
+  (->Σ positioned-stream filename [0 0] () '(0) ()))
+
+(defn lex [[positioned-stream filename]]
+  (first (&python (mkΣ [position-stream filename]))))

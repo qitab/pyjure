@@ -3,9 +3,8 @@
   ;; :url "TBD"
   :license {:name "Apache License 2.0"
             :url "http://www.apache.org/licenses/"}
-  ;; :main skylark.core
+  :main skylark.core
   :dependencies [[org.clojure/clojure "1.6.0"]
-                 [org.clojure/algo.monads "0.1.4"]
                  [leijure/delta-position "0.1.0"]
 
                  ;;; TODO: actually use these
@@ -17,6 +16,7 @@
                  [org.clojure/core.match "0.2.2-SNAPSHOT"]
                  [org.clojure/tools.analyzer "0.3.0"]
                  [org.clojure/tools.analyzer.jvm "0.3.0"]
+                 ;;[org.clojure/algo.monads "0.1.4"]
                  ;;[matchure "0.10.1"]
                  ;;[nconc "1.0.0-SNAPSHOT"]
                  ;;[instaparse "1.3.2"]
@@ -26,4 +26,6 @@
                  ;;[squarepeg "0.6.1"]
                  ]
   :repositories { "sonatype" {:url "https://oss.sonatype.org/content/repositories/snapshots/"}}
-  :profiles {:uberjar {:aot :all}})
+  :resource-paths ["resources/prod"]
+  :profiles {:uberjar {:aot :all}
+             :dev {:resource-paths ["resources/test"]}})

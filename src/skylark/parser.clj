@@ -1,9 +1,8 @@
 (ns skylark.parser
-  (:use [clojure.core.match :only [match]])
-  (:use [skylark.utilities])
-  (:use [skylark.parsing])
-  (:require [skylark.lexer :as lex])
-  (:require [clojure.string :as str]))
+  (:require [clojure.string :as str])
+  (:use [clojure.core.match :only [match]]
+        [skylark.utilities]
+        [skylark.parsing]))
 
 ;; This is largely based on the Python 3 grammar
 ;; Python 3 grammar: https://docs.python.org/3.5/reference/grammar.html
@@ -359,9 +358,11 @@
           _ (&type :endmarker)]
         [:Expression x]))
 
-(defn parser-input [input]
-  (call-with-reader input #(->Σ (lex/python-lexer %) [*file* [0 0] [0 0]])))
+(defn mkΣ [lexed]
+  (let [[[_ _ [file _ _]]] lexed]
+    #(->Σ lexed [file [0 0] [0 0]])))
 
-(defn python-parser [input]
-  (first (&file-input (parser-input input))))
+(defn parse
+  ([lexed] (parse &file-input lexed))
+  ([parser lexed] (-> lexed mkΣ parser first)))
 
