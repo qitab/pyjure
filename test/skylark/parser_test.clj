@@ -11,7 +11,7 @@
 
 (defn test-parse [input] (tryf #(sky/parse input)))
 
-(defn test& [l input] (tryf #(l (mkΣ (sky/lex input)))))
+(defn test& [l input] (tryf #(l (mkParserState (sky/lex input)))))
 
 (deftest parser-test
   (testing "parser smoketest"

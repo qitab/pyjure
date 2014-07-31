@@ -19,20 +19,20 @@
 
 ;; TODO: use ICU4J to support Python 3 Unicode identifiers.
 
-(defrecord Σ [in file prev-position out indent-stack delim-stack]) ; our State
+(defrecord LexerState [in file prev-position out indent-stack delim-stack]) ; our State
 
 (def fail-msg "python lexer failure")
 
-(defmethod fail-message skylark.lexer.Σ [σ] fail-msg)
-(defmethod done? skylark.lexer.Σ [σ] (empty? (:in σ)))
+(defmethod fail-message skylark.lexer.LexerState [σ] fail-msg)
 
 (defn in-char [in] (let [[[x]] in] x))
 (defn in-position [in] (let [[[_ l c]] in] [l c]))
 (defn in-column [in] (let [[[_ l c]] in] c))
 
+(defn done? [σ] (empty? (:in σ)))
 (defn position [σ] (if (done? σ) (:prev-position σ) (in-position (:in σ))))
-(defmethod prev-info skylark.lexer.Σ [σ] (let [{x :prev-position f :file} σ] [f x x]))
-(defmethod next-info skylark.lexer.Σ [σ] (let [x (position σ)] [(:file σ) x x]))
+(defmethod prev-info skylark.lexer.LexerState [σ] (let [{x :prev-position f :file} σ] [f x x]))
+(defmethod next-info skylark.lexer.LexerState [σ] (let [x (position σ)] [(:file σ) x x]))
 
 ;;; Basic input
 
@@ -352,8 +352,8 @@
 (defn position-stream [[input filename]]
   [(delta/positioned-stream input {:line-offset 1 :column-offset 0}) filename])
 
-(defn mkΣ [[positioned-stream filename]]
-  (->Σ positioned-stream filename [0 0] () '(0) ()))
+(defn mkLexerState [[positioned-stream filename]]
+  (->LexerState positioned-stream filename [0 0] () '(0) ()))
 
 (defn lex [[positioned-stream filename]]
-  (first (&python (mkΣ [position-stream filename]))))
+  (first (&python (mkLexerState [positioned-stream filename]))))

@@ -21,25 +21,24 @@
 
 
 ;;; Basic monad constructors
-(defrecord Σ [in prev-info]) ; our State
+(defrecord ParserState [in prev-info]) ; our State
 
 (def fail-msg "python parser failure")
 
-(defmethod fail-message skylark.parser.Σ [σ] fail-msg)
-(defmethod prev-info skylark.parser.Σ [σ] (:prev-info σ))
-(defmethod next-info skylark.parser.Σ [σ]
+(defmethod fail-message skylark.parser.ParserState [σ] fail-msg)
+(defmethod prev-info skylark.parser.ParserState [σ] (:prev-info σ))
+(defmethod next-info skylark.parser.ParserState [σ]
   (match (:in σ)
          [[_ _ info]] info
          _ (let [[file _ end] (:prev-info σ)] [file end end])))
-(defmethod done? skylark.parser.Σ [σ] (empty? (:in σ)))
 
 
 ;;; Parsing tokens and location information
 
-(defn &token [{[[_ _ info :as tok] & rest] :in}] [tok (->Σ rest info)])
+(defn &token [{[[_ _ info :as tok] & rest] :in}] [tok (->ParserState rest info)])
 (defn &type-if [pred]
   (fn [{[[type _ info :as tok] & rest] :in :as σ}]
-    (if (pred type) [tok (->Σ rest info)] (&fail σ))))
+    (if (pred type) [tok (->ParserState rest info)] (&fail σ))))
 (defn &type [t] (&type-if #(= % t)))
 
 
@@ -358,11 +357,11 @@
           _ (&type :endmarker)]
         [:Expression x]))
 
-(defn mkΣ [lexed]
+(defn mkParserState [lexed]
   (let [[[_ _ [file _ _]]] lexed]
-    #(->Σ lexed [file [0 0] [0 0]])))
+    (->ParserState lexed [file [0 0] [0 0]])))
 
 (defn parse
   ([lexed] (parse &file-input lexed))
-  ([parser lexed] (-> lexed mkΣ parser first)))
+  ([parser lexed] (-> lexed mkParserState parser first)))
 

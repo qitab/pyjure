@@ -37,8 +37,11 @@
 
 (defn skylark
   ([input] (skylark nil input))
-  ([last-pass input]
-     (loop [x input p passes]
+  ([last-pass input] (skylark nil last-pass input))
+  ([first-pass last-pass input]
+     (loop [x input
+            p (let [i (.indexOf passes first-pass)]
+                (if (= i -1) passes (subvec passes (+ i 2))))]
        (if (empty? p) x
            (let [[pass fun & more] p]
              (recur (fun x) (if (= pass last-pass) () more)))))))

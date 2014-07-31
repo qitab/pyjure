@@ -5,7 +5,6 @@
 ;; Parsing monad: a state monad with some extensions.
 ;; monad Parser α = State → α×State
 ;; The State type ought to define the following methods:
-(defmulti done? class) ;; a boolean true if the input is all consumed
 (defmulti prev-info class) ;; source information at previous point
 (defmulti next-info class) ;; source information at previous point
 (defmulti fail-message class) ;; a constant error message to provide to ExceptionInfo

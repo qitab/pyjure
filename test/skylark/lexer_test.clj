@@ -20,7 +20,7 @@
 
 (defn test-lex [input] (map simplify (test-lex* input)))
 
-(defn test& [l input] (tryf #(l (mkΣ (sky/position-stream input)))))
+(defn test& [l input] (tryf #(l (mkLexerState (sky/position-stream input)))))
 
 (deftest lexer-test
   (testing "lexer positions"
