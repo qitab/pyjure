@@ -33,6 +33,11 @@
    ;; → Sexp: ^{:source-info Info} (type:keyword & arguments:*)
    :sexpify sexpifier/X
 
+   ;; TODO: insert a macro-expansion phase HERE,
+   ;; then refactor this and subsequent phases into a function eval that
+   ;; fully evaluates each toplevel form, to leave an opportunity for macros
+   ;; to be defined before they are evaluated.
+
    ;; → same, but :def and :class entries annotated with sets of bindings
    :analyze-scope scope-analysis/A
 

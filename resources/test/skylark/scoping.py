@@ -81,3 +81,14 @@ def m():
 """) ; assert False
 except SyntaxError: assert True
 
+i=0
+
+for i in range(2,5):
+  print(i)
+
+print(i)
+
+#def foo():
+#  with bar() as x:
+#    global x
+#  nonlocal x

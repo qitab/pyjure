@@ -16,10 +16,10 @@
            (Xvec* [s] (map Xvec s))
            (def-arg [[[name type] default]]
              (when-not (nil? name)
-               (list 'argument (X name) (X type) (X default))))
+               (list :argument (X name) (X type) (X default))))
            (def-xarg [[name type]]
              (when-not (nil? name)
-               (list 'argument (X name) (X type))))
+               (list :argument (X name) (X type))))
            (def-args [[positional-args rest-arg more-args kw-arg]]
              [(vec (map def-arg positional-args))
               (def-xarg rest-arg)
@@ -63,7 +63,7 @@
          (w (list :if (Xvec* clauses) (X else))))
        :assign
        (let [[a b] x]
-         (w (list '= (X a) (X b))))
+         (w (list :keyarg (X a) (X b))))
        :assign-expr
        (let [v (Xvec x)]
          (w (list :assign-expr (subvec v 0 (dec (count v))) (last v))))

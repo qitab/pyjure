@@ -203,7 +203,7 @@
 (def &and-test (&op-expr :and &not-test))
 (def &or-test (&op-expr :or &and-test))
 (defn &lambdef0 [m]
-  (&prefixed-vector 'lambda &varargslist (&do &colon m)))
+  (&prefixed-vector :lambda &varargslist (&do &colon m)))
 (def &lambdef (&lambdef0 &test))
 (def &lambdef-nocond (&lambdef0 &test-nocond))
 (def &test-nocond (&or &or-test &lambdef-nocond))

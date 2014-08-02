@@ -60,6 +60,11 @@
                       [(reverse front) E] is)]
     [(reverse o) E]))
 
+(defn copy-meta [x y] (with-meta x (meta y)))
+
+(defn update-in-multiple [record fields f & args]
+  (reduce #(apply update-in % [%2] f args) record fields))
+
 (defmacro DBG [tag & exprs]
     "debug macro for print-debugging:
 tag is typically a constant string or keyword to identify who is printing,
