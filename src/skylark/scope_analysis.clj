@@ -30,14 +30,17 @@
        (:star)
        (rec)
        (:subscript) ;; not pure
-       (let [[o ss] x
-             [o E] (Alhs o E)]
+       (let [[o ss] t
+             [o E] (Alhs fields o E)]
          (A* (list h o) ss E))
        (:select) ;; not pure
-       (let [[o n] x
-             [o E] (Alhs o E)]
+       (let [[o n] t
+             [o E] (Alhs fields o E)]
          [(list h o n) E])
        (:argument) ;; for use in def
+       (let [[name type default] t
+             [name E] (Alhs fields name E)]
+         [[name type default] E])
        ($syntax-error)))
    :else ($syntax-error)))
 
@@ -51,6 +54,7 @@
 (defn A
   ([x] (A x null-env))
   ([x E]
+     (DBG :A x E)
      (let [i (meta x)
            w (fn [[x E]] [(with-meta x i) E])]
        (cond
@@ -79,7 +83,7 @@
                   [clauses E] (thread-args
                                () (fn [[expr target] E]
                                     (let [[expr E] (A expr E)
-                                          [target E] (Alhs target E)]
+                                          [target E] (Alhs [:assigned] target E)]
                                       [[expr target] E])) clauses E)
                   [body E] (A body E)]
               (w [(list h clauses body) E]))
@@ -88,23 +92,40 @@
                   [value E] (A value E)]
               (w [(list* h name value) E]))
             (:def)
-            (let [[name [args star-arg more-args kwarg] rettype body decorators] t
+            (let [[name [args star-arg more-args kw-arg] rettype body decorators] t
                   [decorators E] (A* () decorators E)
-                  [name E] (Alhs name E)
-                  [args EE] (Alhs* args null-env)
-                  [star-arg EE] (Alhs star-arg EE)
-                  [more-args EE] (Alhs* more-args EE)
-                  [kwarg EE] (Alhs kwarg EE)
-                  [rettype EE] (A rettype EE)
+                  [name E] (Alhs [:assigned] name E)
+                  ;; Process arguments once in environment E for their type and default
+                  [args E] (vec (A* () args E))
+                  [star-arg E] (A star-arg E)
+                  [more-args E] (vec (A* () more-args E))
+                  [kw-arg E] (A kw-arg E)
+                  [rettype E] (A rettype E)
+                  ;; Process arguments once as lhs in inner environment EE for their name
+                  [args EE] (vec (Alhs* () [:assigned] args null-env))
+                  [star-arg EE] (Alhs [:assigned] star-arg EE)
+                  [more-args EE] (vec (Alhs* () [:assigned] more-args EE))
+                  [kw-arg EE] (Alhs [:assigned] kw-arg EE)
                   [body EE] (A body EE)]
-              (w [(list h name [args star-arg more-args kwarg] rettype body decorators EE) E]))
+              (w [(list h name [args star-arg more-args kw-arg] rettype body decorators EE) E]))
+            (:argument) ;; for use in def
+            (let [[name type default] t]
+              (w (A* (list h name) [type default] E)))
             (:class)
             (let [[name superclasses body decorators] t
                   [decorators E] (A* () decorators E)
-                  [name E] (Alhs name E)
-                  [superclasses E] (Alhs* () superclasses E)
+                  [name E] (Alhs [:assigned] name E)
+                  [superclasses E] (A* () superclasses E)
                   [body EE] (A body null-env)]
               (w [(list h name superclasses body decorators EE) E]))
+            (:lambda)
+            (let [[[args star-arg more-args kw-arg] body] t
+                  [args EE] (vec (Alhs* () [:assigned] args null-env))
+                  [star-arg EE] (Alhs [:assigned] star-arg EE)
+                  [more-args EE] (vec (Alhs* () [:assigned] more-args EE))
+                  [kw-arg EE] (Alhs [:assigned] kw-arg EE)
+                  [body EE] (A body EE)]
+              (w [(list h name [args star-arg more-args kw-arg] body EE) E]))
             (:yield :yield-from)
             (w (A* (list h) t (assoc E :yield true)))
             (:nonlocal :global)
@@ -112,7 +133,7 @@
             (:del) ;; maybe we need a special category for :del ?
             (Alhs [:assigned] x E)
             (:import :from)
-            (w (NIY))
+            [x E] ;; untouched in this pass
             (:assign-expr)
             (let [[ls r] t
                   [rhs E] (A r E)
@@ -152,6 +173,6 @@
             ($syntax-error)))
         (symbol? x)
         [x (update-in E [:referenced] #(conj % x))]
-        (or (literal? x) (#{:False :True :None :zero-uple :empty-list :empty-dict} x))
+        (or (literal? x) (#{:False :True :None :zero-uple :empty-list :empty-dict} x) (nil? x))
         [x E]
         :else ($syntax-error x)))))
