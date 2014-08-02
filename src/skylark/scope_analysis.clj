@@ -1,78 +1,99 @@
 (ns skylark.scope-analysis
   (:use [clojure.core.match :only [match]]
-        [skylark.utilities]))
+        ;;[skylark.parsing] ;; ACTUALLY, State Monad, not just parsing!
+        [skylark.utilities]
+        [skylark.runtime :only [literal? $syntax-error]]))
 
 ;; Annotate each scoping level with
 ;; 1- which identifiers it either: (1) marks as global, (2) marks as nonlocal, (3) introduces.
 ;; 2- whether it yields
 
-;; We map Python list to Clojure vector for fast-ish append,
-;; Python tuple to Clojure list,
-;; Python dict to Clojure map, Python set to Clojure set.
+(defrecord Environment [global nonlocal assigned referenced yield])
+(def null-env (->Environment #{} #{} #{} #{} false))
+;;(defmethod fail-message Environment "scoping error")
 
-;; Just like macropy, we have three kinds of macros:
-;; expr-macro, block-macro and decorator-macro.
-;; However, we pass our kind of ASTs, not theirs.
+(declare A)
 
-(defrecord Environment [global nonlocal local yield])
-;; level: 0 for global, incremented when you descend into scope
-;; local: map of names to getters
-;; outer: the next outer environment, or nil if already global
-;; global: the global environment
-;; yield?: has yield appeared at this scope level? if yes, we'll have to transform the def.
+(defn A* [head xs E] (thread-args (list head) A xs E))
 
-(def null-env (->Environment #{} #{} #{} false))
+;;(defn copy-meta [x y] (with-meta x (meta y)))
+
+(defn update-in-multiple [record fields f & args]
+  (reduce #(apply update-in % [%2] f args) record fields))
+
+(defn Alhs [fields x E]
+  (<- (if (symbol? x)
+        [x (update-in-multiple E fields conj x)])
+      (if (seq? x)
+        (let [[h & t] x]
+          (case h
+            (:tuple :list :del)
+            (thread-args (list h) #(Alhs fields % %2) t E)
+            (:subscript)
+            (NIY)
+            (NIY))))
+      (NIY)))
 
 (defn A
   ([x] (A x null-env))
-  ([x E] (NIY)))
+  ([x E]
+     (let [i (meta x)
+           w (fn [[x E]] [(with-meta x i) E])]
+       (<- (if (seq? x)
+             (let [[h & t] x]
+               (case h
+                 (:identity :Expression :Interactive :Module :progn
+                            :and :or
+                            :add :sub :mul :div :floordiv :mod :lshift :rshift
+                            :and_ :or_ :xor :pow
+                            :not :pos :neg :invert
+                            :lt :gt :eq :ge :le :ne :in :is :not-in :is_not ;; magic
+                            :assert :pass
+                            :dict :list :set :tuple
+                            :return :star
+                            :break :continue :raise
+                            :imaginary
+                            :comparison
+                            :subscript
+                            :if :while)
+                 (w (A* h t E))
+                 (:yield :yield-from)
+                 (w (A* h t (assoc E :yield true)))
+                 (:nonlocal :global)
+                 [x (update-in E [h] #(apply conj % t))]
+                 (:del) ;; maybe we need a special category for :del ?
+                 (Alhs [:assigned] x E)
+                 (:import :from)
+                 (w (NIY))
+                 (:assign-expr)
+                 (let [[ls r] t
+                       [rhs E] (A r E)
+                       [lhs E] (thread-args () #(Alhs [:assigned] % %2) ls E)]
+                   (w [(list h (vec lhs) rhs) E]))
+                 (:iadd :isub :imul :idiv :ifloordiv :imod :iand :ior :ixor
+                        :irshift :ilshift :ipow :imatmul)
+                 (let [[l r] t
+                       [rhs E] (A r E)
+                       [lhs E] (Alhs [:referenced :assigned] l E)]
+                   (w [(list h lhs rhs) E]))
+                 (:select)
+                 (let [[y n] x
+                       [z E] (A y E)]
+                   (w [(list h z n) E]))
+                 (NIY))))
+           (if (symbol? x)
+             [x (update-in E [:referenced] #(conj % x))])
+           (if (or (literal? x) (#{:False :True :None :zero-uple :empty-list :empty-dict} x))
+             [x E])
+           ($syntax-error x)))))
 
 (comment
-
-     (match [x]
-       [([h & _] :seq)]
-    (<- (if (symbol? h)
-          (if-let [[getter found?] (symbol-getter h E)]
-            [getter E]
-            (let [newE (create-binding h E)]
-              [(first (symbol-getter h newE)) newE])))
-        (if (#{:identity :Expression :Interactive} h) (C x E))
-        (if-let [v ({:Module 'do :progn 'do} h)] (C* v (rest x) E))
-        (if (#{:and :or
-               :add :sub :mul :div :floordiv :mod :lshift :rshift
-               :and_ :or_ :xor :pow
-               :not :pos :neg :invert
-               :lt :gt :eq :ge :le :ne :in :is :not-in :is_not ;; magic
-               :assert :pass} h) (C* (runtime-symbol h) (rest x) E))
-        ($syntax-error))
-    [x :guard literal?] [x E] ;; :integer :float :string :bytes
-    [:True] [$True E]
-    [:False] [$False E]
-    [:None] [$None E]
-    [:zero-uple] [$empty-tuple E]
-    [:empty-list] [$empty-list E]
-    [:empty-dict] [$empty-dict E]
-    :else ($syntax-error))
-
-  :dict
-  :return :star :identity
-  :comp-for :comp-if :del :except :for :list :global :nonlocal
-  :raise :select :set :slice :tuple :while
-  :break :continue
-  :import
-  :def
+  :comprehension :comp-for :comp-if
+  :try :except
+  :for
   :decorator
+  :def
   :class
   :call
-  :subscript
-  :imaginary
-  :if
   =
-  :assign-expr
-  :augassign-expr ;; :iadd :isub :imul :imul :ifloordiv :imod :iand :ior :ixor :irshift :ilshift :ipow :imatmul
-  :comparison
-  :comprehension
-  :from
-  :try
-  :with
-  :yield-from :yield)
+  :with)

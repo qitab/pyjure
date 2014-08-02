@@ -1,4 +1,8 @@
 (ns skylark.core
+  (:use [clojure.tools.trace]
+        [clojure.tools.nrepl]
+        [clojure.repl]
+        [clojure.test])
   ;;; Our passes, in order:
   (:require [skylark.utilities :as utilities]
             [leijure.delta-position :as position]
@@ -9,6 +13,7 @@
             [skylark.clojurifier :as clojurifier]))
 
 ;; TODO: this file should just combine together all the passes.
+;; TODO: interleave evaluation and macro-expansion?
 
 (def passes
   [;; * → [reader:java.io.Reader filename:String]

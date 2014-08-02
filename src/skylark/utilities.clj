@@ -2,6 +2,7 @@
 
 ;; Miscellaneous general purpose utilities.
 ;; TODO: move them to leijure?
+;; or to one of https://github.com/weavejester/medley or https://github.com/flatland/useful
 
 (defn NIY [& args] (throw (Throwable. "Not Implemented Yet")))
 (defn NFN [& args] nil) ;; nil for now
@@ -50,3 +51,44 @@
 
 (defn tryf [fun] (try (fun) (catch clojure.lang.ExceptionInfo x (.data x))))
 
+(defn thread-args [front S is E]
+  ;; given a semantic function S, a list of inputs is, and an environment E,
+  ;; compute for each i in is the semantic function given the preceding environment,
+  ;; yielding an output o and a new environment, and
+  ;; return a vec of (0) the list of outputs as appended to front and (1) the last environment.
+  (let [[o E] (reduce (fn [[os E] i] (let [[on En] (S i E)] [(conj os on) En]))
+                      [(reverse front) E] is)]
+    [(reverse o) E]))
+
+(defmacro DBG [tag & exprs]
+    "debug macro for print-debugging:
+tag is typically a constant string or keyword to identify who is printing,
+but can be an arbitrary expression returning a tag to be princ'ed first;
+if the tag evaluates to falsy (false or nil), nothing is printed.
+exprs are expressions, which when the TAG was truthy are evaluated in order,
+with their source code then their return values being printed each time.
+The last expresion is *always* evaluated and its multiple values are returned,
+but its source and return values are only printed if the tag was truthy;
+previous expressions are not evaluated at all if TAG was falsy.
+The macro expansion has relatively low overhead in space or time."
+  (let [last-expr (last exprs)
+        other-exprs (butlast exprs)
+        thunk (gensym "thunk_")]
+    `(let [tag# ~tag]
+       (letfn ~(if exprs `[(~'thunk [] ~last-expr)] [])
+         (if tag#
+             (DBG-helper tag#
+                         [~@(map #(do `['~% (fn [] ~%)]) other-exprs)]
+                         ~(when exprs `['~last-expr ~'thunk]))
+             ~(if exprs `(~'thunk) nil))))))
+
+(defn DBG-helper [tag xts last-xt]
+  ;; Helper for the above debugging macro
+  (letfn [(foo [[expression thunk]]
+            (print "  ") (pr expression) (print " => ")
+            (let [val (thunk)]
+              (prn val)
+              val))]
+    (println tag)
+    (doseq [xt xts] (foo xt))
+    (when last-xt (foo last-xt))))

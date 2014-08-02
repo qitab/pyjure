@@ -24,10 +24,6 @@
 
 (defn symbol-getter [class name] (NFN))
 
-(defn literal? [x]
-  (or (integer? x) (float? x) (string? x) (byte-array? x)))
-
-
 (defn expr-macro [name]
   ;; (NIY)
   nil)
@@ -78,12 +74,6 @@
 (defn C* [head xs E]
   (let [[o E] (reduce (fn [[os E] x] (let [[on En] (C x E)] [(conj os on) En])) [(list head) E] xs)]
        [(reverse o) E]))
-
-(defn $syntax-error []
-  (throw (Throwable. "Syntax Error")))
-
-(defn runtime-symbol [x]
-  (symbol 'skylark.runtime (str \$ x)))
 
 (defn C
   ([x] (C x null-env))

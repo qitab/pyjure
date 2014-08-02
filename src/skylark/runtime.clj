@@ -18,6 +18,15 @@
 (def $bytes (Class/forName "[B"))
 (defn byte-array? [x] (= (type x) $bytes))
 
+(defn literal? [x]
+  (or (integer? x) (float? x) (string? x) (byte-array? x)))
+
+(defn $syntax-error [& x]
+  (throw (Throwable. "Syntax Error")))
+
+(defn runtime-symbol [x]
+  (symbol 'skylark.runtime (str \$ (name x))))
+
 (defn builtin? [x]
   (or (nil? x) (list? x)
       (booleanize

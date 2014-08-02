@@ -1,6 +1,7 @@
 (ns skylark.parsing
   (:use [skylark.utilities]))
 
+;; TODO: rename to state-monad ?
 
 ;; Parsing monad: a state monad with some extensions.
 ;; monad Parser α = State → α×State

@@ -66,9 +66,9 @@
          (w (list '= (X a) (X b))))
        :assign-expr
        (let [v (Xvec x)]
-         (w (list 'assign (subvec v 0 (dec (count v))) (last v))))
+         (w (list :assign-expr (subvec v 0 (dec (count v))) (last v))))
        :augassign-expr
-       ;; :iadd :isub :imul :imul :ifloordiv :imod :iand :ior :ixor :irshift :ilshift :ipow :imatmul
+       ;; :iadd :isub :imul :idiv :ifloordiv :imod :iand :ior :ixor :irshift :ilshift :ipow :imatmul
        (let [[a op b] x] (w (list (first op) (X a) (X b))))
        :comparison
        (let [[a ops] x] (w (list* :comparison (X a) (map X* ops))))
