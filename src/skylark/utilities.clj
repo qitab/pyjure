@@ -7,8 +7,6 @@
 (defn NIY [& args] (throw (Throwable. "Not Implemented Yet")))
 (defn NFN [& args] nil) ;; nil for now
 
-(defn booleanize [x] (if x true false))
-
 (defmacro <- "Nesting macro" ([] nil) ([x] x) ([x & y] `(~@x (<- ~@y)))) ;; like UIOP:NEST in CL
 
 (defmacro ignore-errors
@@ -97,3 +95,37 @@ The macro expansion has relatively low overhead in space or time."
     (println tag)
     (doseq [xt xts] (foo xt))
     (when last-xt (foo last-xt))))
+
+
+;; Simple compile-time logic:
+;; :⊥ \bot(tom) means
+;;     at runtime "no observable branch of executable code that does anything"
+;;     or at compile-time "no possible value returned"
+;; :⊤ \top means "anything may happen at runtime, any and all return values could be returned"
+
+(defn ∨ [x y] ;; negative additive. $or --- one of several branches of execution may be taken.
+  (cond (= x :⊥) y
+        (= y :⊥) x
+        (= x y) x
+        :else :⊤))
+
+;;(defn $lift [f & args] (if ...
+
+(defn $true? [x] (= x true))
+(defn $false? [x] (= x false))
+(defn $unknown? [x] (= x nil))
+(defn ∧ [x y] (if (= x y) x nil)) ;; negative multiplicative, $and: whichever branch is taken will have the properties of both these branches.
+
+
+(defn $error
+  ([msg tag fmt args m] (throw (ex-info "$error" (merge m {::tag tag ::format fmt ::args args}))))
+  ([msg tag m] ($error msg tag nil nil m)))
+
+(defn $error?
+  ([x] (find (ex-data x) ::tag))
+  ([x tag] (= tag ($error? x))))
+
+(defn $error-string [ex]
+  (if-let [{tag ::tag info ::source-info fmt ::format args ::args :as m} (ex-data ex)]
+    (str tag (when info (str " at " info))
+         (when fmt (str ": " (apply format fmt (map m args)))))))

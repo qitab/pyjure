@@ -21,10 +21,6 @@
 
 (defrecord LexerState [in file prev-position out indent-stack delim-stack]) ; our State
 
-(def fail-msg "python lexer failure")
-
-(defmethod fail-message skylark.lexer.LexerState [σ] fail-msg)
-
 (defn in-char [in] (let [[[x]] in] x))
 (defn in-position [in] (let [[[_ l c]] in] [l c]))
 (defn in-column [in] (let [[[_ l c]] in] c))

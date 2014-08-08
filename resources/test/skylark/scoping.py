@@ -1,5 +1,7 @@
 # This file should run without any error with python, python3, skylark.
 
+# for assertions: <Yhg1s> Fare: exception objects usually have an 'args' attribute that is their associated data. It differs per exception type.
+
 def local_late_def():
   return local_late()
   def local_late(): # Defined too late!
@@ -79,7 +81,7 @@ def m():
   global XX
   nonlocal XX
 """) ; assert False
-except SyntaxError: assert True
+except SyntaxError as x: print(x)
 
 i=0
 
@@ -88,7 +90,56 @@ for i in range(2,5):
 
 print(i)
 
-#def foo():
-#  with bar() as x:
-#    global x
-#  nonlocal x
+try: exec("""
+def foo():
+  with bar() as x:
+    global x
+  nonlocal x
+""") ; assert False
+except SyntaxError as x: print(x)
+
+try: exec("""
+def foo(i):
+  global i
+  i=1
+""") ; assert False
+except SyntaxError as x: print(x)
+
+
+def foo(x):
+  i = 2
+  if x:
+    global i
+  return i
+
+print(foo(True))  # 2
+print(foo(False)) # 2
+
+def foo2(x):
+  if x==1:
+    y="1"
+  elif x==2:
+    y="2"
+  return y
+
+try:
+  print(foo2(0)) ; assert False
+except UnboundLocalError as x: print(x) # local variable 'y' referenced before assignment
+print(foo2(1)) ; assert foo2(1) == "1"
+print(foo2(2)) ; assert foo2(2) == "2"
+
+try: exec("""
+def is_global_nonlocal():
+  nonlocal i
+  return i""") ; assert False
+except SyntaxError as x: print(x)
+
+def which_nonlocal():
+  def f(): return i
+  i = "defined_later"
+  return f()
+
+print(which_nonlocal())
+
+def f9(a,b=1,*d,e=2,**g): pass
+

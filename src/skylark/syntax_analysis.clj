@@ -1,16 +1,67 @@
-(ns skylark.scope-analysis
+(ns skylark.syntax-analysis
   (:use [clojure.core.match :only [match]]
         ;;[skylark.parsing] ;; ACTUALLY, State Monad, not just parsing!
         [skylark.utilities]
-        [skylark.runtime :only [literal? $syntax-error]]))
+        [skylark.runtime]))
+
+;; Maybe macro-expand already so we get fewer different constructs to analyze?
+
+
+;; When it's complete, find a proper name for this phase.
+;; Maybe syntactic-analysis?
+;; It's not just an analysis of what variables are in what scope,
+;; but detecting the effects syntactically present in the code
+;; (though further analysis might optimize some of them away).
+;; e.g. if an identifier is declared, if a yield is present, etc.,
+;; even if ultimately not used, it affects the semantics
+;; of the code, by shadowing a variable, marking the function as
+;; a generator, or merely introducing syntax errors.
 
 ;; Annotate each scoping level with
-;; 1- which identifiers it either: (1) marks as global, (2) marks as nonlocal, (3) introduces.
+;; 1- which identifiers it either:
+;;  (1) marks as global, (2) marks as nonlocal, (3) introduces.
 ;; 2- whether it yields
 
-(defrecord Environment [global nonlocal assigned referenced yield])
-(def null-env (->Environment #{} #{} #{} #{} false))
-;;(defmethod fail-message Environment "scoping error")
+(defn $syntax-analysis-error [fmt args x]
+  ($error "scope analysis error" 'syntax-analysis-error
+          fmt args {:expr x :source-info (:source-info (meta x))}))
+
+;; TODO: maybe store analysis results in meta data, not in another field?
+;; but then macros must be careful to NOT blindly copy that meta-data,
+;; but only the meta data they know they preserve... ahem.
+
+;; TODO: how do we interleave that with macro expansion?
+;; By assuming no undeclared nonlocal or global or local binding,
+;; and erroring out if we are contradicted on that.
+
+;; TODO: adapt what environments we store to what we actually need later
+;; TODO: maybe store for each expression the state of the environment before it?
+;;   can be slightly tricky in a branch inside a loop:
+;;   which bindings exactly are visible from there?
+
+;; The analysis state tracks a local and global environment, for macro-expansion,
+;; and a record of the effects that (may) happen in the current scope.
+(defrecord AnalysisState [locals globals effects]) ;; environment is for macro-expansion
+
+;; A (local) Environment maps identifiers to values, and has an optional parent Environment
+;; We only need it for macros. Actually, if we stick to global macros that can't be shadowed,
+;; we don't need it at this stage.
+(defrecord Environment [vars parent])
+
+;; effects are things that may happen within a scope.
+;; at every point, we compute the effects before and after that point in the current scope;
+;; effects are thus a monoid that can be composed forward and backward.
+(defrecord Effects [vars yield? return? raise?])
+(def null-effects (->Effects #{} false false false))
+
+(defrecord ScopeVarStatus [locality assigned? refered?])
+;; locality can be :param, :local, :nonlocal, :global
+;; assigned? can be false, true, :⊤
+;; refered? can be false, true, :macro, :⊤
+;; An error will be raised at compile-time if there is a conflict
+
+(def null-syntax-analysis-state (->AnalysisState nil $initial-environment null-effects))
+
 
 (declare A Alhs)
 
@@ -33,7 +84,7 @@
        (let [[o ss] t
              [o E] (Alhs fields o E)]
          (A* (list h o) ss E))
-       (:select) ;; not pure
+       (:attribute) ;; not pure
        (let [[o n] t
              [o E] (Alhs fields o E)]
          [(list h o n) E])
@@ -52,12 +103,12 @@
     [[args star-arg more-args kw-arg] E]))
 
 (defn A
-  ([x] (A x null-env))
+  ([x] (A x null-syntax-analysis-state))
   ([x E]
-     (DBG :A x E)
      (let [i (meta x)
            w (fn [[x E]] [(with-meta x i) E])]
        (cond
+        ;; (:syntax-analysis i) x ;; already computed! (useful for macros, if they don't blindly copy it)
         (seq? x)
         (let [[h & t] x]
           (case h
@@ -102,7 +153,7 @@
                   [kw-arg E] (A kw-arg E)
                   [rettype E] (A rettype E)
                   ;; Process arguments once as lhs in inner environment EE for their name
-                  [args EE] (vec (Alhs* () [:assigned] args null-env))
+                  [args EE] (vec (Alhs* () [:assigned] args null-syntax-analysis-state))
                   [star-arg EE] (Alhs [:assigned] star-arg EE)
                   [more-args EE] (vec (Alhs* () [:assigned] more-args EE))
                   [kw-arg EE] (Alhs [:assigned] kw-arg EE)
@@ -116,11 +167,11 @@
                   [decorators E] (A* () decorators E)
                   [name E] (Alhs [:assigned] name E)
                   [superclasses E] (A* () superclasses E)
-                  [body EE] (A body null-env)]
+                  [body EE] (A body null-syntax-analysis-state)]
               (w [(list h name superclasses body decorators EE) E]))
             (:lambda)
             (let [[[args star-arg more-args kw-arg] body] t
-                  [args EE] (vec (Alhs* () [:assigned] args null-env))
+                  [args EE] (vec (Alhs* () [:assigned] args null-syntax-analysis-state))
                   [star-arg EE] (Alhs [:assigned] star-arg EE)
                   [more-args EE] (vec (Alhs* () [:assigned] more-args EE))
                   [kw-arg EE] (Alhs [:assigned] kw-arg EE)
@@ -129,7 +180,11 @@
             (:yield :yield-from)
             (w (A* (list h) t (assoc E :yield true)))
             (:nonlocal :global)
-            [x (update-in E [h] #(apply conj % t))]
+            (let [other (E ({:nonlocal :global :global :nonlocal} h))]
+              (doseq [x t]
+                (when (other x) ($syntax-error))
+                (when ((E :referenced) x) ($syntax-error))) ;; TODO: make it a warning only
+              [x (update-in E [h] #(apply conj % t))])
             (:del) ;; maybe we need a special category for :del ?
             (Alhs [:assigned] x E)
             (:import :from)

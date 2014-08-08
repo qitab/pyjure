@@ -1,6 +1,6 @@
 (ns skylark.core
   (:use [clojure.tools.trace]
-        [clojure.tools.nrepl]
+        ;;[clojure.tools.nrepl]
         [clojure.repl]
         [clojure.test])
   ;;; Our passes, in order:
@@ -9,7 +9,7 @@
             [skylark.lexer :as lexer]
             [skylark.parser :as parser]
             [skylark.sexpifier :as sexpifier]
-            [skylark.scope-analysis :as scope-analysis]
+            [skylark.syntax-analysis :as syntax-analysis]
             [skylark.clojurifier :as clojurifier]))
 
 ;; TODO: this file should just combine together all the passes.
@@ -39,7 +39,7 @@
    ;; to be defined before they are evaluated.
 
    ;; → same, but :def and :class entries annotated with sets of bindings
-   :analyze-scope scope-analysis/A
+   :analyze-syntax syntax-analysis/A
 
    ;; → converting to clojure code, executable with skylark.runtime
    :clojurify clojurifier/C

@@ -5,15 +5,19 @@
   (:use [clojure.core.match :only [match]]
         [skylark.utilities]))
 
-(def initial-environment {})
+(defn $syntax-error
+  ([x fmt args map] ($error "Syntax Error" 'syntax-error fmt args
+                            (merge map {:expr x :source-info (meta x)})))
+  ([x fmt] ($syntax-error x fmt [:expr] {}))
+  ([x] ($syntax-error x nil nil {})))
+
+(def $initial-environment {})
 
 (defn register-initial-binding [s v]
-  (set! initial-environment (conj initial-environment [s v])))
-
+  (set! $initial-environment (conj $initial-environment [s v])))
 
 (defn $class [object] (NFN))
 (defn $get-method [class name] (NFN))
-
 
 (def $bytes (Class/forName "[B"))
 (defn byte-array? [x] (= (type x) $bytes))
@@ -21,15 +25,12 @@
 (defn literal? [x]
   (or (integer? x) (float? x) (string? x) (byte-array? x)))
 
-(defn $syntax-error [& x]
-  (throw (Throwable. "Syntax Error")))
-
 (defn runtime-symbol [x]
   (symbol 'skylark.runtime (str \$ (name x))))
 
 (defn builtin? [x]
   (or (nil? x) (list? x)
-      (booleanize
+      (boolean
        (#{java.lang.Boolean java.lang.Long java.math.BigDecimal java.lang.String
           clojure.lang.PersistentVector clojure.lang.PersistentHashSet clojure.lang.PersistentArrayMap}
         (type x)))))
@@ -38,7 +39,7 @@
 
 (defn easy-falsity? [x]
   ;; NB: [] catches (), but empty byte-array isn't caught.
-  (or (not x) (booleanize (#{[] {} #{} 0 0M 0.0 ""} x))))
+  (or (not x) (boolean (#{[] {} #{} 0 0M 0.0 ""} x))))
 (def $False false)
 (def $easy-falsity ;; python easy falsity
   {:element? easy-falsity?})
@@ -129,3 +130,29 @@
 
 (defn $not [x] (not ($truth x))) ; python: operator.not_(x), but no magic __not__ method delegation.
 
+(defmacro $global [x] `(var-get (var ~x)))
+
+
+(defn expr-macro [name]
+  (NFN))
+
+(defn block-macro [name]
+  (NFN))
+
+(defn decorator-macro [name]
+  (NFN))
+
+;;; Decorators
+
+(defn decorate [definition decorator]
+  ;;; implement decorators...
+  (let [[name args] (if (symbol? decorator) [decorator nil] decorator)
+        macro (decorator-macro name)]
+    (if macro
+      (macro args definition)
+      (let [[_ defname] definition]
+        `(do ~definition
+             (set! ~defname (~decorator ~defname)))))))
+
+(defmacro decorated [decorators definition]
+  (reduce decorate definition decorators))

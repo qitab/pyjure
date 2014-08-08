@@ -1,0 +1,64 @@
+Random TODO items for this skylark implementation in Clojure
+* write down some examples of generated code
+   have a collection of simple functions that span
+   the entire base language and its various interactions,
+   and write down what the generated code would look like.
+
+   def fib(n):
+     if n == 0: return 0
+     elif n == 1: return 1
+     else: return fib(n-1) + fib(n-2)
+
+   (defn fib$internal [n]
+     (if (= n 0) ;; we know it's a boolean, so no $truthy required
+         0 ;; return directly,
+         ;; continuation not bound to a function,
+         ;; because it's only called in one branch.
+         (if (= n 1) 1
+             (+ (fib$internal (- n 1)) (fib$internal (- n 2))))))
+         ;; we can call internal function because it is known
+   (def fib (one-arg-function fib$internal))
+
+
+* enumerate effects that can be done by a block of code,
+  that have to be accounted by some monad at runtime,
+  and some state in the compile-time analysis.
+
+  refer to variable [name, projection (e.g. as boolean; error if not list; etc.)]
+  bind variable [name, type]
+  return [type]
+  yield [type]
+  raise an exception [type]
+     including implicit type mismatch!
+  non-termination []
+  re-bind an outside variable [variable] ;; FORBIDDEN
+  side-effect the object bound to a variable [variable] ;; FORBIDDEN
+
+  If none of these effects happens, the block can be moved
+  earlier or later if used, and skipped altogether if not.
+
+
+  at analysis-time, each effect is annotated with some domain
+  (i.e. notional set of input conditions) over which the effect happens.
+  :⊥ (don't know anything about this effect yet)
+  false (effect never happens when this block is run)
+  true (effect always happen if this block is run)
+  :⊤ (effect may or may not happen if this block is run)
+
+  Future versions can use more elaborate flow analyzes,
+  but for now we want the minimum that can produce code that runs.
+
+   pass bindings and binding-witnesses
+   (or, use an unbound marker distinct from None?)
+   lexical return
+   skynode definitions as side-effect
+   dynamic calling convention
+   global state (NO!)
+   [Compile time]
+   analysis state(s)
+
+* we need the effects for the current snippet and its block continuation.
+
+* soup up analysis phase
+
+

@@ -8,16 +8,16 @@
 ;; The State type ought to define the following methods:
 (defmulti prev-info class) ;; source information at previous point
 (defmulti next-info class) ;; source information at previous point
-(defmulti fail-message class) ;; a constant error message to provide to ExceptionInfo
 
 ;; Monadic entities have the & prefix.
 
 ;; TODO: better error-handling:
 ;; * remember the furthest point of parse, and use that for the final error.
+;;   Thus, fail can avoid using expensive exceptions, and we get better, useful error messages.
 ;; * remember the tree of alternatives at that furthest point?
-;; Thus, fail can avoid using expensive exceptions, and we get better, useful error messages.
+;;   Thus we can also have shallower stacks, and implement a "cut" in backtracking, just like prolog.
 ;; This may require adding new methods above to store that information in the State,
-;; e.g. a defmulti to access or update a slot "control".
+;; e.g. a defmulti to access or update a slot "control", or just assume :control is it and use that.
 
 ;; TODO: move this to its own library leijure.parsing under leijure?
 
@@ -29,17 +29,16 @@
   ([] &nil)
   ([m1 m2 & ms] (reduce &bind (list* m1 m2 ms))))
 
-(defn fail& [σ details]
-  (throw (clojure.lang.ExceptionInfo.
-          (fail-message σ) (conj details [:info (prev-info σ)]))))
+(defn fail&
+  ([σ fmt args map]
+     ($error "Syntax Error" (type σ) fmt args
+             (merge map {:σ σ :source-info (prev-info σ)})))
+  ([σ] (fail& σ nil nil {})))
 
-(defn &error
-  ([] (&error {}))
-  ([details] (fn [σ] (fail& σ details))))
+(defn &error [& args] (fn [σ] (apply fail& σ args)))
 (def &fail (&error))
 (defn try& [f σ]
-  (try (f σ) (catch clojure.lang.ExceptionInfo x
-               (when-not (= (.getMessage x) (fail-message σ)) (throw x)))))
+  (try (f σ) (catch clojure.lang.ExceptionInfo x (when-not ($error? (type σ)) (throw x)))))
 (defn &or* [ls]
   (fn [σ] (loop [l ls]
             (if (empty? l) (&fail σ)

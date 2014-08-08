@@ -25,7 +25,6 @@
 
 (def fail-msg "python parser failure")
 
-(defmethod fail-message skylark.parser.ParserState [σ] fail-msg)
 (defmethod prev-info skylark.parser.ParserState [σ] (:prev-info σ))
 (defmethod next-info skylark.parser.ParserState [σ]
   (match (:in σ)
@@ -100,7 +99,7 @@
          (reduce (fn [[_ _ i2 :as x] [op _ i1]] [(opmap op) x (merge-info i1 i2)]) x l)))
 
 (defn merge-strings [ss]
-  (assert (not (empty? ss)))
+  (assert (seq ss))
   (let [[[b s1 i1 :as fs] & rs] ss]
     (loop [sl (list s1) i2 i1 r rs]
       (if (empty? r)
@@ -150,8 +149,8 @@
 ;; results in an ambiguity. ast.c makes sure it's a NAME.
 (def &argument (&mod-expr &test (&or &comp-for (&prefixed :assign &test))
                           #(if (= (first %2) :assign)
-                             [:assign [% (second %2)]]
-                             [:comprehension [:argument % %2]])))
+                             [:keyarg [% (second %2)]]
+                             [:generator-exp % %2])))
 (def &arglist (&argslist &argument &test false))
 
 (def &slice-op (&do &colon (&optional &test)))
@@ -165,7 +164,8 @@
   (&letx [x m
           f (&optional &comp-for)
           [l c] (if f &nil (&vector (&list (&do &comma m)) &optional-comma))]
-         (cond f [:comprehension [kind x f]]
+         (cond f [({:tuple :generator-exp, :list :list-comp, :dict :dict-comp, :set :set-comp} kind)
+                  x f]
                (and (empty? l) (nil? c) (= kind :tuple)) [:identity x]
                :else [kind (cons x l)])))
 
@@ -182,7 +182,7 @@
                       (merge-strings x))))
 (def &trailer (&or (&letx [x (&paren &arglist)] [:call x])
                    (&letx [x (&paren \[ \] &subscriptlist)] [:subscript x])
-                   (&letx [x (&do &dot &name)] [:select x])))
+                   (&letx [x (&do &dot &name)] [:attribute x])))
 (def &atom-trailer
   (&let [a &atom t (&list &trailer)]
         (reduce (fn [[_ _ ix :as x] [tag y iy]] [tag [x y] (merge-info ix iy)]) a t)))
@@ -198,7 +198,7 @@
 (def &comp-op (&or (&letx [_ (&type :not) _ (&type :in)] [:not-in nil])
                    (&letx [_ (&type :is) _ (&type :not)] [:is_not nil])
                    (&type-if #{:lt :gt :eq :ge :le :ne :in :is})))
-(def &comparison (&multi-op-expr :comparison &comp-op &expr))
+(def &comparison (&multi-op-expr :compare &comp-op &expr))
 (def &not-test (&unary-op-expr #{:not} &comparison))
 (def &and-test (&op-expr :and &not-test))
 (def &or-test (&op-expr :or &and-test))
@@ -250,8 +250,8 @@
                  (&non-empty-list (&do (&type :assign) (&or &yield-expr &testlist-star-expr)))
                  &nil)]
          (cond (nil? l) x
-               (vector? l) [:augassign-expr [x (first l) (second l)] info&]
-               :else [:assign-expr (cons x l) info&])))
+               (vector? l) [:augassign [x (first l) (second l)] info&]
+               :else [:assign (cons x l) info&])))
 
 ;; The python grammar specifies exprlist, but we interpret it here as a &n-e-m-t-list,
 ;; whereas we interpret &exprlist as a &tuple-or-singleton
@@ -343,19 +343,19 @@
 
 (def &single-input
   (&letx [x (&or &newline &simple-statement (&do1 &compound-statement &newline))]
-         [:Interactive x]))
+         [:interactive x]))
 
 (def &file-input
   (&letx [_ (&repeat &newline)
           x (&list (&do1 &statement (&repeat &newline)))
           _ (&type :endmarker)]
-         [:Module x]))
+         [:module x]))
 
 (def &eval-input
   (&letx [x &testlist
           _ (&repeat &newline)
           _ (&type :endmarker)]
-        [:Expression x]))
+        [:expression x]))
 
 (defn mkParserState [lexed]
   (let [[[_ _ [file _ _]]] lexed]

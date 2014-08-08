@@ -11,69 +11,26 @@
 ;; expr-macro, block-macro and decorator-macro.
 ;; However, we pass our kind of ASTs, not theirs.
 
+;; TODO: transform every branch point into binding-passing style?
+
 (declare C create-binding)
 
 (defrecord Environment [level local outer global])
 ;; level: 0 for global, incremented when you descend into scope
-;; local: map of names to getters
-;; outer: the next outer environment, or nil if already global
+;; local: map of names to getters, or nil if level is 0
+;; outer: the next outer non-global environment, or nil if only global is next
 ;; global: the global environment
 ;; yield?: has yield appeared at this scope level? if yes, we'll have to transform the def.
+
 
 (def null-env (->Environment {} {} {} {}))
 
 (defn symbol-getter [class name] (NFN))
 
-(defn expr-macro [name]
-  ;; (NIY)
-  nil)
 
-(defn block-macro [name]
-  ;; (NIY)
-  nil)
+(declare C Cassign)
 
-(defn decorator-macro [name]
-  ;; (NIY)
-  nil)
-
-
-;;; Decorators
-
-(defn decorate [definition decorator]
-  ;;; implement decorators...
-  (let [[name args] (if (symbol? decorator) [decorator nil] decorator)
-        macro (decorator-macro name)]
-    (if macro
-      (macro args definition)
-      (let [[_ defname] definition]
-        `(do ~definition
-             (set! ~defname (~decorator ~defname)))))))
-
-(defmacro decorated [decorators definition]
-  (reduce decorate definition decorators))
-
-(comment
-   (letfn [(w ([x] (w x info)) ([x i] (with-meta x {:source-info i})))
-           (X* [s] (when s (map X s)))
-           (Xvec [s] (vec (X* s)))
-           (Xvec* [s] (map Xvec s))
-           (def-arg [[[name type] default]]
-             (when-not (nil? name)
-               (list 'argument (X name) (X type) (X default))))
-           (def-xarg [[name type]]
-             (when-not (nil? name)
-               (list 'argument (X name) (X type))))
-           (def-args [[positional-args rest-arg more-args kw-arg]]
-             [(vec (map def-arg positional-args))
-              (def-xarg rest-arg)
-              (vec (map def-arg more-args))
-              (def-xarg kw-arg)])
-           (Xarglist [[args rarg margs kargs]]
-             [(Xvec args) (X rarg) (Xvec margs) (X kargs)])]))
-
-(defn C* [head xs E]
-  (let [[o E] (reduce (fn [[os E] x] (let [[on En] (C x E)] [(conj os on) En])) [(list head) E] xs)]
-       [(reverse o) E]))
+(defn C* [head xs E] (thread-args head C xs E))
 
 (defn C
   ([x] (C x null-env))
@@ -104,26 +61,36 @@
        :else ($syntax-error))))
 
 (comment
-  :dict
-  :return :star :identity
-  :comp-for :comp-if :del :except :for :list :global :nonlocal
-  :raise :select :set :slice :tuple :while
-  :break :continue
-  :import
-  :def
-  :decorator
-  :class
-  :call
-  :subscript
-  :imaginary
-  :if
-  =
-  :assign-expr
-  :augassign-expr ;; :iadd :isub :imul :imul :ifloordiv :imod :iand :ior :ixor :irshift :ilshift :ipow :imatmul
-  :comparison
-  :comprehension
-  :from
-  :try
-  :with
-  :yield-from :yield)
+  "
+def foo(a):
+  x=1
+  if a: x=2
+  return x
+"
+  (defn foo [a] (let [x 1] (-> ($if a [2] [x]) (fn [[x]] x))))
+
+  "
+def foo(a):
+  x=1;
+  if a:
+    return x
+  elif bar(a):
+    y = 3
+  else:
+    y = 4
+    z = 5
+  if y == 4:
+    return z
+"
+  (defn foo [a]
+    (let [x 1]
+      ((fn [k] ($cond a x
+                      ($call bar a) (k 3 nil false)
+                      :else (k 4 5 true)))
+       ;; no need to pass a witness for y: it is always bound in all branches that reach k
+       ;; on the other hand, our analysis doesn't prove that z is unbound, so we check
+       (fn [y z z?] ((fn [k] ($cond (= y 4) ($check-bound z? z) ;
+                                    :else (k)))
+                (fn [] (return $None))))))))
+;; Further passes may show that some functions are used only once, and thus may be inlined,
 
