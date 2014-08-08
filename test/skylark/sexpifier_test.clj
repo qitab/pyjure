@@ -29,6 +29,6 @@ bar, \"1 2 3\", 0, 1, [ 2, 3, 0b101, 0x7, 0o13, 0O15, 0X11, ],
   ,baz]
 def quux ():
   {u\"x\": \"a\"}")
-           '(:module (:def hello [[(:argument world nil nil)] (:argument more nil) [] nil] nil (:progn (:call print [[] nil [] nil]) (:add (:add "a b" "c d") (:subscript foo ("abcd" bar "1 2 3" 0N 1N (:list 2N 3N 5N 7N 11N 13N 17N) 1.2345E68 1.0 1.0 1.0 1.0 1.0 (:add 1N (:imaginary 0.5)) (:neg 1N) 1.0 baz)))) ()) (:def quux [[] nil [] nil] nil (:progn (:dict ["x" "a"])) ())))))
+           '(:module (:def hello [[(:argument world nil nil)] (:argument more nil) [] nil] nil (:progn (:call print [[] nil [] nil]) (:binop :add (:binop :add "a b" "c d") (:subscript foo ("abcd" bar "1 2 3" 0N 1N (:list 2N 3N 5N 7N 11N 13N 17N) 1.2345E68 1.0 1.0 1.0 1.0 1.0 (:binop :add 1N (:imaginary 0.5)) (:unary-op :neg 1N) 1.0 baz)))) ()) (:def quux [[] nil [] nil] nil (:progn (:dict ["x" "a"])) ())))))
   (testing "Every python lexing and parsing rule"
     (is (= (first (s all-python)) :module))))

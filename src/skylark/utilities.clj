@@ -122,7 +122,7 @@ The macro expansion has relatively low overhead in space or time."
   ([msg tag m] ($error msg tag nil nil m)))
 
 (defn $error?
-  ([x] (find (ex-data x) ::tag))
+  ([x] (second (find (ex-data x) ::tag)))
   ([x tag] (= tag ($error? x))))
 
 (defn $error-string [ex]

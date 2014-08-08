@@ -38,7 +38,7 @@
 (defn &error [& args] (fn [σ] (apply fail& σ args)))
 (def &fail (&error))
 (defn try& [f σ]
-  (try (f σ) (catch clojure.lang.ExceptionInfo x (when-not ($error? (type σ)) (throw x)))))
+  (try (f σ) (catch clojure.lang.ExceptionInfo x (when-not ($error? x (type σ)) (throw x)))))
 (defn &or* [ls]
   (fn [σ] (loop [l ls]
             (if (empty? l) (&fail σ)

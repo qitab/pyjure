@@ -37,13 +37,13 @@
 (defn &indent-stack [σ] [(:indent-stack σ) σ])
 (defn &read-char [{in :in :as σ}] [(in-char in) (assoc σ :in (rest in) :prev-position (position σ))])
 (defn &emit [& α] (fn [σ] [nil (assoc σ :out (apply conj (:out σ) α))]))
-(defn &neof [σ] ((if (done? σ) (&error {:r "unexpected EOF"}) &nil) σ))
-(defn &eof [σ] ((if (done? σ) &nil (&error {:r "expected EOF"})) σ))
+(defn &neof [σ] ((if (done? σ) (&error "unexpected EOF" nil {}) &nil) σ))
+(defn &eof [σ] ((if (done? σ) &nil (&error "expected EOF" nil {})) σ))
 
 (defn &char-if [pred]
   (&let [x &read-char
          r (if (and x (pred x)) (&return x)
-               (&error {:r "expected char" :pred pred}))]))
+               (&error "expected char %s" [:pred] {:pred pred}))]))
 (defn &char-if-not [pred] (&char-if #(not (pred %))))
 (defn &char= [c] (&char-if #(= % c)))
 

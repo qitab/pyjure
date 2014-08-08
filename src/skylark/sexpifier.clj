@@ -46,7 +46,7 @@
        (:and_ :or_ :xor :pow) (w (list* :binop tag (X* x)))
        (:dict) (w (cons tag (Xvec* x)))
        (:return :star :identity) (w (list tag (X x)))
-       (:not :pos :neg :invert) (w (list :UnaryOp tag (X x)))
+       (:not :pos :neg :invert) (w (list :unary-op tag (X x)))
        (:break :continue :pass) (w (list tag))
        (:import) (cons :import (map (fn [[names name]] [(Xvec names) (X name)]) x))
        :def
