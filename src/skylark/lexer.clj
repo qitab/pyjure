@@ -19,16 +19,18 @@
 
 ;; TODO: use ICU4J to support Python 3 Unicode identifiers.
 
-(defrecord LexerState [in file prev-position out indent-stack delim-stack]) ; our State
-
 (defn in-char [in] (let [[[x]] in] x))
 (defn in-position [in] (let [[[_ l c]] in] [l c]))
 (defn in-column [in] (let [[[_ l c]] in] c))
 
 (defn done? [σ] (empty? (:in σ)))
 (defn position [σ] (if (done? σ) (:prev-position σ) (in-position (:in σ))))
-(defmethod prev-info skylark.lexer.LexerState [σ] (let [{x :prev-position f :file} σ] [f x x]))
-(defmethod next-info skylark.lexer.LexerState [σ] (let [x (position σ)] [(:file σ) x x]))
+
+(defrecord LexerState [in file prev-position out indent-stack delim-stack]
+  SourceInfoStream
+  (prev-info [σ] (let [{x :prev-position f :file} σ] [f x x]))
+  (next-info [σ] (let [x (position σ)] [(:file σ) x x])))
+
 
 ;;; Basic input
 
@@ -37,8 +39,8 @@
 (defn &indent-stack [σ] [(:indent-stack σ) σ])
 (defn &read-char [{in :in :as σ}] [(in-char in) (assoc σ :in (rest in) :prev-position (position σ))])
 (defn &emit [& α] (fn [σ] [nil (assoc σ :out (apply conj (:out σ) α))]))
-(defn &neof [σ] ((if (done? σ) (&error "unexpected EOF" nil {}) &nil) σ))
-(defn &eof [σ] ((if (done? σ) &nil (&error "expected EOF" nil {})) σ))
+(defn &neof [σ] ((if (done? σ) (&error "unexpected EOF") &nil) σ))
+(defn &eof [σ] ((if (done? σ) &nil (&error "expected EOF nil")) σ))
 
 (defn &char-if [pred]
   (&let [x &read-char
@@ -85,14 +87,14 @@
   (fn [{out :out [top :as is] :indent-stack :as σ}]
     (let [pos (position σ)
           info [(:file σ) pos pos]
-          tok+ #(conj % [%2 nil info])]
+          tok+ #(conj % (with-source-info [%2] info))]
       (if (> column top)
         [nil (assoc σ :out (tok+ out :indent) :indent-stack (conj is column))]
         (loop [[top & ris :as nis] is
                nout out]
           (cond
            (= column top) [nil (assoc σ :out nout :indent-stack nis)]
-           (or (empty? ris) (> column top)) ((&error {:r "invalid dedentation"}) σ)
+           (or (empty? ris) (> column top)) ((&error "invalid dedentation") σ)
            :else (recur ris (tok+ nout :dedent))))))))
 
 (defn char-range [first last] (map char (range (int first) (inc (int last)))))
@@ -118,7 +120,7 @@
   (&let [c (&char-if letters_)
          s (&chars (&char-if letters_digits) (list c))]
         (if-let [k (keywords s)]
-          [k nil] ;; skylark keywords as clojure symbols
+          [k] ;; skylark keywords as clojure symbols
           [:id s]))) ;; identifiers as strings (for now... can be interned later)
 
 (defn char-lower-case [c] (when c (char (java.lang.Character/toLowerCase (int c)))))
@@ -127,7 +129,8 @@
   (&let [  (&char= \{)
          name (&chars (&char-if char-name-chars))
          _ (&char= \})
-           (&error {:r "Not implemented yet" :function '&named-char :name name})]))
+           (&error "Function %s not implemented yet (char name %s)"
+                   [:function :name] {:function '&named-char :name name})]))
 
 (defmacro int<-digits [base & digits] (reduce #(do `(+ (* ~% ~base) ~%2)) digits))
 
@@ -299,7 +302,7 @@
 
 (def &delimiter-or-operator
   (&let [x (&or* (map (fn [[s x]] (&do (&string= s) (&return x))) delimiters-and-operators))]
-        [x nil]))
+        [x]))
 
 (def paren-closer {\( \) \[ \] \{ \}})
 
@@ -307,17 +310,16 @@
   (&or
    (&bind (&char-if #{\( \[ \{})
           #(fn [σ]
-             [[% nil] (assoc σ :delim-stack (conj (:delim-stack σ) (paren-closer %)))]))
+             [[%] (assoc σ :delim-stack (conj (:delim-stack σ) (paren-closer %)))]))
    (&bind (&char-if #{\) \] \}})
           #(fn [{ds :delim-stack :as σ}]
-             [[% nil]
+             [[%]
               (assoc σ :delim-stack
-                     (if (= % (first ds)) (rest ds) ((&error {:r "Unmatched delimiter"}) σ)))]))))
+                     (if (= % (first ds)) (rest ds) ((&error "Unmatched delimiter") σ)))]))))
 
 (def &token ;; accepts a token and emits it.
-  (&bind (&letx [[type data] (&or &string-literal &numeric-literal
-                                  &paren &ident-or-keyword &delimiter-or-operator)]
-                [type data])
+  (&bind (&letx [x (&or &string-literal &numeric-literal
+                        &paren &ident-or-keyword &delimiter-or-operator)] x)
          &emit))
 
 (def &logical-line
@@ -329,13 +331,13 @@
              (&indent column)
              (&repeat (&do &token &whitespace))
              &comment-eol
-             (&bind &prev-info (fn [info] (&emit [:newline nil info])))))]
+             (&bind &prev-info (fn [info] (&emit (with-source-info [:newline] info))))))]
     nil))
 
 (defn &finish [{out :out is :indent-stack :as σ}]
   (let [pos (position σ)
         info [(:file σ) pos pos]
-        tok+ #(conj % [%2 nil info])]
+        tok+ #(conj % (with-source-info [%2] info))]
     (loop [[top & ris] is
            out out]
       (if (> top 1) (recur ris (tok+ out :dedent))

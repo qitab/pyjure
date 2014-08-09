@@ -62,3 +62,8 @@ Random TODO items for this skylark implementation in Clojure
 * soup up analysis phase
 
 
+* figure out how exceptions interact with shadowing of local bindings.
+   In Python, x = v is a variable assignment side-effect, so
+   the handler and continuation see the modified variables.
+   In Skylark, x = v is the shadowing of a binding, so
+   the handler and continuation see the original bindings.

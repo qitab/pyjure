@@ -142,6 +142,7 @@
 (defn decorator-macro [name]
   (NFN))
 
+
 ;;; Decorators
 
 (defn decorate [definition decorator]
@@ -156,3 +157,10 @@
 
 (defmacro decorated [decorators definition]
   (reduce decorate definition decorators))
+
+
+(defn make-generator [s] {:seq s})
+
+(defn $just-yield [x]
+  (make-generator (list x)))
+

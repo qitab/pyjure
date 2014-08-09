@@ -6,8 +6,11 @@
 ;; Parsing monad: a state monad with some extensions.
 ;; monad Parser α = State → α×State
 ;; The State type ought to define the following methods:
-(defmulti prev-info class) ;; source information at previous point
-(defmulti next-info class) ;; source information at previous point
+
+(defprotocol SourceInfoStream
+  "Protocol for stream providing source information"
+  (prev-info [x] "source information at previous point")
+  (next-info [x] "source information at next point"))
 
 ;; Monadic entities have the & prefix.
 
@@ -31,8 +34,9 @@
 
 (defn fail&
   ([σ fmt args map]
-     ($error "Syntax Error" (type σ) fmt args
-             (merge map {:σ σ :source-info (prev-info σ)})))
+     ($error "Syntax Error" (type σ) fmt args (merge map {:σ σ :source-info (prev-info σ)})))
+  ([σ fmt args] (fail& σ fmt args {}))
+  ([σ fmt] (fail& σ fmt nil {}))
   ([σ] (fail& σ nil nil {})))
 
 (defn &error [& args] (fn [σ] (apply fail& σ args)))
@@ -101,6 +105,9 @@
 (defn &prev-info [σ] [(prev-info σ) σ])
 (defn &next-info [σ] [(next-info σ) σ])
 
+(defn source-info [x] (:source-info (meta x)))
+(defn with-source-info [x i] (and x (with-meta x (merge (meta x) {:source-info i}))))
+
 (defn merge-info [[file start-pos _] [filetoo _ end-pos]]
   {:pre [(= file filetoo)]}
   [file start-pos end-pos])
@@ -109,8 +116,7 @@
   ;; not hygienic: anaphorically exposes bindings to start& end& info&
   `(&let ~(into `[~'start& &next-info] (into bindings `[~'end& &prev-info]))
          (let [~'info& (merge-info ~'start& ~'end&)] ~value)))
-(defmacro &letx [bindings value]
-  `(&leti ~bindings (let [~'v& ~value] (and ~'v& (conj ~'v& ~'info&)))))
+(defmacro &letx [bindings value] `(&leti ~bindings (with-source-info ~value ~'info&)))
 (defn &info [m] (&letx [x m] x))
 
 

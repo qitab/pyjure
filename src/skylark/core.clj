@@ -8,7 +8,7 @@
             [leijure.delta-position :as position]
             [skylark.lexer :as lexer]
             [skylark.parser :as parser]
-            [skylark.sexpifier :as sexpifier]
+            ;; [skylark.desugar :as desugar]
             [skylark.syntax-analysis :as syntax-analysis]
             [skylark.clojurifier :as clojurifier]))
 
@@ -27,11 +27,11 @@
    ;; where Info = [filename:String start:Position end:Position]
    :lex lexer/lex
 
-   ;; → nested [type:keyword data:* info:Info]
+   ;; → AST: nested ^{:source-info Info} [type:keyword & data:*]
    :parse parser/parse
 
-   ;; → Sexp: ^{:source-info Info} (type:keyword & arguments:*)
-   :sexpify sexpifier/X
+   ;; → AST1: desugared language
+   ;; :desugar desugar/desugar
 
    ;; TODO: insert a macro-expansion phase HERE,
    ;; then refactor this and subsequent phases into a function eval that

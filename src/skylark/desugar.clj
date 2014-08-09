@@ -1,6 +1,10 @@
-(ns skylark.sexpifier
+(ns skylark.desugar
   (:use [skylark.parsing :only [merge-info]]
         [clojure.core.match :only [match]]))
+
+;; macroexpand python syntax into a simpler language:
+
+
 
 ;; The results of parsing is of the form [head args info]
 ;; We massage it into (with-meta (cons massaged-head massaged-args) {:source-info info})
@@ -46,7 +50,7 @@
        (:and_ :or_ :xor :pow) (w (list* :binop tag (X* x)))
        (:dict) (w (cons tag (Xvec* x)))
        (:return :star :identity) (w (list tag (X x)))
-       (:not :pos :neg :invert) (w (list :unary-op tag (X x)))
+       (:not :pos :neg :invert) (w (list :UnaryOp tag (X x)))
        (:break :continue :pass) (w (list tag))
        (:import) (cons :import (map (fn [[names name]] [(Xvec names) (X name)]) x))
        :def
@@ -107,3 +111,15 @@
        (w (if (= (first x) :subiterator)
             (list :yield-from (X (second x)))
             (list :yield (X x))))))))
+
+
+;; Problem: 
+(defn $generator-exp [expr gen] `(make-generator ($generator-seq expr gen)))
+
+(defn $generator-seq [expr gen]
+  (match [gen]
+    [nil] `(list ~expr)
+    [[([:comp-for target gen] :seq) & more] `($comp-for gen (fn  
+    [[([:comp-if test] :seq) & more]
+     
+    [([:comp-for target gen]

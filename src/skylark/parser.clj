@@ -21,15 +21,13 @@
 
 
 ;;; Basic monad constructors
-(defrecord ParserState [in prev-info]) ; our State
-
-(def fail-msg "python parser failure")
-
-(defmethod prev-info skylark.parser.ParserState [σ] (:prev-info σ))
-(defmethod next-info skylark.parser.ParserState [σ]
-  (match (:in σ)
-         [[_ _ info]] info
-         _ (let [[file _ end] (:prev-info σ)] [file end end])))
+(defrecord ParserState [in prev-info] ; our State
+  SourceInfoStream
+  (prev-info [σ] (:prev-info σ))
+  (next-info [σ]
+    (match (:in σ)
+      [[_ _ info]] info
+      _ (let [[file _ end] (:prev-info σ)] [file end end]))))
 
 
 ;;; Parsing tokens and location information
@@ -49,7 +47,11 @@
 (def &dots0 (&fold (&type-if #{:dot :ellipsis}) #(+ % ({:dot 1 :ellipsis 3} (first %2))) 0))
 (def &dots (&let [x &dots0 _ (if (= x 0) &fail &nil)] x))
 (def &colon (&type :colon))
-(def &name (&type :id))
+(def &name (&let [n (&type :id)] (with-source-info (symbol (second n)) (source-info n))))
+
+(defn &tag [tag m] (&letx [x m] [tag x]))
+(defn &prefixed [prefix m] (&letx [_ (&type prefix) x m] (into [prefix] x)))
+(defn &prefixed-vector [prefix & ms] (&prefixed prefix (apply &vector-f ms)))
 
 (defn &non-empty-separated-list
   ([m] (&non-empty-separated-list m &comma))
@@ -67,9 +69,9 @@
           (&return ()))))
 
 (defn &tuple-or-singleton [m] ;; have expr-context :load :store :del :aug-load :aug-store :param ???
-  (&leti [[[type data _ :as x] :as l] (&non-empty-separated-list m)
+  (&leti [l (&non-empty-separated-list m)
           s &optional-comma]
-         (if (and (empty? (rest l)) (nil? s)) x [:tuple l info&])))
+         (if (and (empty? (rest l)) (nil? s)) (first l) (with-source-info (vec* :tuple l) info&))))
 
 (defn &paren
   ([m] (&paren \( \) m))
@@ -77,36 +79,43 @@
 
 (def &newline (&type :newline))
 
-(defn &prefixed [prefix m]
-  (&letx [_ (&type prefix) x m] [prefix x]))
-
-(defn &prefixed-vector [prefix & ms]
-  (&prefixed prefix (apply &vector-f ms)))
-
-(defn &tag [tag m] (&letx [x m] [tag x]))
-
 (defn &mod-expr [m modifier f]
-  (&leti [x m mod (&optional modifier)] (if mod (conj (f x mod) info&) x)))
+  (&leti [x m mod (&optional modifier)] (if mod (with-source-info (f x mod) info&) x)))
 
-(defn &op-expr [op m]
-  (&mod-expr m (&non-empty-list (&do (&type op) m)) #(do [op (cons % %2)])))
+(defn &op-expr [op m f]
+  (&mod-expr m (&non-empty-list (&do (&type op) m)) #(f (cons % %2))))
 
-(defn &multi-op-expr [tag op m]
-  (&mod-expr m (&non-empty-list (&vector op m)) #(do [tag [% %2]])))
+(defn &multi-op-expr [op m f]
+  (&mod-expr m (&non-empty-list (&vector op m)) f))
 
 (defn &unary-op-expr [opmap m]
   (&leti [l (&list (&type-if opmap)) x m]
-         (reduce (fn [[_ _ i2 :as x] [op _ i1]] [(opmap op) x (merge-info i1 i2)]) x l)))
+         (reduce (fn [x [op :as o]]
+                   (with-source-info [:unaryop (opmap op) x]
+                     (merge-info (source-info o) (source-info x))))
+                 x (reverse l))))
 
 (defn merge-strings [ss]
   (assert (seq ss))
-  (let [[[b s1 i1 :as fs] & rs] ss]
+  (let [[[b s1 :as fs] & rs] ss
+        i1 (source-info fs)]
     (loop [sl (list s1) i2 i1 r rs]
       (if (empty? r)
-        [b ((if (= b :bytes) join-bytes str/join) (reverse sl)) (merge-info i1 i2)]
+        (with-source-info [b ((if (= b :bytes) join-bytes str/join) (reverse sl))] (merge-info i1 i2))
         (let [[[b2 s2 i2] r2] r]
           (assert (= b b2))
           (recur (cons s2 sl) i2 r2))))))
+
+(defn binop [left more]
+  (reduce (fn [a [op b]]
+            (with-source-info [:binop (first op) a b]
+              (merge-info (source-info a) (source-info b))))
+          left more))
+
+(defn binop* [op]
+  #(reduce (fn [a b] (with-source-info [:binop op a b]
+                       (merge-info (source-info a) (source-info b)))) %))
+
 
 
 ;;; Our Python grammar
@@ -138,7 +147,7 @@
            keyword-arg
            (if stillmore (&optional (&do (&type :pow) rarg)) &nil)
            _ (if (and (nil? keyword-arg) (vector? stillmore)) &fail &nil)]
-          [positional-args rest-arg more-args keyword-arg])))
+          [(vec positional-args) rest-arg (vec more-args) keyword-arg])))
 
 ;; Note: these correspond to _optional_ [*argslist] in the python grammar.
 (def &varargslist (&argslist &name &name true))
@@ -147,10 +156,10 @@
 
 ;; The reason that keywords are test nodes instead of NAME is that using NAME
 ;; results in an ambiguity. ast.c makes sure it's a NAME.
-(def &argument (&mod-expr &test (&or &comp-for (&prefixed :assign &test))
+(def &argument (&mod-expr &test (&or &comp-for (&prefixed-vector :assign &test))
                           #(if (= (first %2) :assign)
                              [:keyarg [% (second %2)]]
-                             [:generator-exp % %2])))
+                             [:generator % %2])))
 (def &arglist (&argslist &argument &test false))
 
 (def &slice-op (&do &colon (&optional &test)))
@@ -164,14 +173,15 @@
   (&letx [x m
           f (&optional &comp-for)
           [l c] (if f &nil (&vector (&list (&do &comma m)) &optional-comma))]
-         (cond f [({:tuple :generator-exp, :list :list-comp, :dict :dict-comp, :set :set-comp} kind)
+         (cond f [({:tuple :generator, :list :list-comp, :dict :dict-comp, :set :set-comp} kind)
                   x f]
                (and (empty? l) (nil? c) (= kind :tuple)) [:identity x]
-               :else [kind (cons x l)])))
+               :else (vec* kind x l))))
 
-(def &yield-expr (&prefixed :yield
-                            (&optional (&or (&do (&type :from) (&tag :subiterator &test))
-                                            &testlist))))
+(def &yield-expr (&do (&type :yield)
+                      (&or (&do (&type :from) (&tag :yield-from &test))
+                           (&tag :yield (&optional &testlist)))))
+
 (def &atom (&or (&paren (&or &yield-expr (&comprehension :tuple &test-star-expr) (&return :zero-uple)))
                 (&paren \[ \] (&or (&comprehension :list &test-star-expr) (&return :empty-list)))
                 (&paren \{ \} (&or (&comprehension :dict (&vector &test (&do &colon &test)))
@@ -180,28 +190,31 @@
                 &name (&type-if #{:integer :float :imaginary :ellipsis :None :True :False})
                 (&let [x (&non-empty-list (&type-if #{:string :bytes}))]
                       (merge-strings x))))
-(def &trailer (&or (&letx [x (&paren &arglist)] [:call x])
-                   (&letx [x (&paren \[ \] &subscriptlist)] [:subscript x])
+(def &trailer (&or (&letx [x (&paren &arglist)] (vec* :call x))
+                   (&letx [x (&paren \[ \] &subscriptlist)] (vec* :subscript x))
                    (&letx [x (&do &dot &name)] [:attribute x])))
 (def &atom-trailer
   (&let [a &atom t (&list &trailer)]
-        (reduce (fn [[_ _ ix :as x] [tag y iy]] [tag [x y] (merge-info ix iy)]) a t)))
-(def &power (&mod-expr &atom-trailer (&do (&type :pow) &factor) #(do [:pow [% %2]])))
+        (reduce (fn [x [tag & args :as o]]
+                  (with-source-info (vec* tag x args)
+                    (merge-info (source-info x) (source-info o))))
+                a t)))
+(def &power (&mod-expr &atom-trailer (&do (&type :pow) &factor) #(vector :binop :pow % %2)))
 (def &factor (&unary-op-expr {:add :pos, :sub :neg, :invert :invert} &power))
-(def &term (&multi-op-expr :term (&type-if #{:mul :matmul :div :mod :floordiv}) &factor))
-(def &arith-expr (&multi-op-expr :arith-expr (&type-if #{:add :sub}) &term))
-(def &shift-expr (&multi-op-expr :shift-expr (&type-if #{:lshift :rshift}) &arith-expr))
-(def &and-expr (&op-expr :and_ &shift-expr))
-(def &xor-expr (&op-expr :xor &and-expr))
-(def &expr (&op-expr :or_ &xor-expr))
-(def &star-expr (&letx [_ (&type :mul) x &expr] [:star x]))
+(def &term (&multi-op-expr (&type-if #{:mul :matmul :div :mod :floordiv}) &factor binop))
+(def &arith-expr (&multi-op-expr (&type-if #{:add :sub}) &term binop))
+(def &shift-expr (&multi-op-expr (&type-if #{:lshift :rshift}) &arith-expr binop))
+(def &and-expr (&op-expr :and_ &shift-expr (binop* :and_)))
+(def &xor-expr (&op-expr :xor &and-expr (binop* :xor)))
+(def &expr (&op-expr :or_ &xor-expr (binop* :or_)))
+(def &star-expr (&letx [_ (&type :mul) x &expr] [:starred x]))
 (def &comp-op (&or (&letx [_ (&type :not) _ (&type :in)] [:not-in nil])
                    (&letx [_ (&type :is) _ (&type :not)] [:is_not nil])
                    (&type-if #{:lt :gt :eq :ge :le :ne :in :is})))
-(def &comparison (&multi-op-expr :compare &comp-op &expr))
+(def &comparison (&multi-op-expr &comp-op &expr #(do [:compare % (map first %2) (map second %2)])))
 (def &not-test (&unary-op-expr #{:not} &comparison))
-(def &and-test (&op-expr :and &not-test))
-(def &or-test (&op-expr :or &and-test))
+(def &and-test (&op-expr :and &not-test #(into [:boolop :and] %)))
+(def &or-test (&op-expr :or &and-test #(into [:boolop :or] %)))
 (defn &lambdef0 [m]
   (&prefixed-vector :lambda &varargslist (&do &colon m)))
 (def &lambdef (&lambdef0 &test))
@@ -209,18 +222,22 @@
 (def &test-nocond (&or &or-test &lambdef-nocond))
 (def &test
   (&or (&mod-expr &or-test (&vector (&do (&type :if) &or-test) (&do (&type :else) &test))
-                  #(do [:if [(first %2) % (second %2)]]))
+                  #(do [:if (first %2) % (second %2)]))
        &lambdef))
 
 (def &exprlist (&tuple-or-singleton (&or &expr &star-expr)))
-(def &comp-for (&letx [_ (&type :for) x &exprlist _ (&type :in) y &or-test z (&optional &comp-iter)]
-                      [:comp-for [x y z]]))
-(def &comp-if (&letx [_ (&type :if) x &test-nocond y (&optional &comp-iter)] [:comp-if [x y]]))
+(def &comp-for (&leti [_ (&type :for) x &exprlist _ (&type :in) y &or-test z (&optional &comp-iter)]
+                      (cons (with-source-info [:comp-for x y] info&) z)))
+(def &comp-if (&leti [_ (&type :if) x &test-nocond y (&optional &comp-iter)]
+                     (cons (with-source-info [:comp-if x] info&) y)))
 (def &comp-iter (&or &comp-for &comp-if))
 
 (def &suite
   (&or &simple-statement
-       (&do &newline (&type :indent) (&do1 (&tag :progn (&non-empty-list &statement)) (&type :dedent)))))
+       (&let [_ (&do &newline (&type :indent))
+              l (&non-empty-list &statement)
+              _ (&type :dedent)]
+             (vec* :suite l))))
 (def &colon-suite (&do &colon &suite))
 
 (def &function-definition
@@ -250,8 +267,8 @@
                  (&non-empty-list (&do (&type :assign) (&or &yield-expr &testlist-star-expr)))
                  &nil)]
          (cond (nil? l) x
-               (vector? l) [:augassign [x (first l) (second l)] info&]
-               :else [:assign (cons x l) info&])))
+               (vector? l) (with-source-info [:augassign x (first l) (second l)] info&)
+               :else (let [v (vec (cons x l))] (with-source-info [:assign (pop v) (last v)] info&)))))
 
 ;; The python grammar specifies exprlist, but we interpret it here as a &n-e-m-t-list,
 ;; whereas we interpret &exprlist as a &tuple-or-singleton
@@ -263,7 +280,7 @@
 (def &pass-statement (&type :pass))
 (def &break-statement (&type :break))
 (def &continue-statement (&type :continue))
-(def &return-statement (&prefixed :return (&optional &testlist)))
+(def &return-statement (&prefixed-vector :return (&optional &testlist)))
 (def &yield-statement &yield-expr)
 (def &raise-statement
   (&prefixed :raise (&optional (&vector &test (&optional (&do (&type :from) &test))))))
@@ -285,7 +302,7 @@
 
 (def &simple-statement
   (&leti [l (&non-empty-maybe-terminated-list &small-statement (&type :semicolon)) _ &newline]
-         (if (empty? (rest l)) (first l) [:progn l info&])))
+         (if (empty? (rest l)) (first l) (with-source-info (into [:suite] l) info&))))
 
 (def &if-statement
   (&prefixed-vector :if
@@ -322,12 +339,13 @@
           name &dotted-name
           args (&optional (&paren &arglist))
           _ &newline]
-         [:decorator [name args]]))
+         [:decorator name args]))
 
 (def &definition
   (&leti [decorators (&list &decorator)
-          [defkind data info] (&or &class-definition &function-definition)]
-         [defkind (conj data decorators) info&]))
+          definition (&or &class-definition &function-definition)]
+         (let [m (meta definition)]
+           (with-meta (conj definition (vec decorators)) m))))
 
 (def &compound-statement
   (&or &if-statement &while-statement &for-statement &try-statement &with-statement &definition))
@@ -349,13 +367,13 @@
   (&letx [_ (&repeat &newline)
           x (&list (&do1 &statement (&repeat &newline)))
           _ (&type :endmarker)]
-         [:module x]))
+         (into [:module] x)))
 
 (def &eval-input
   (&letx [x &testlist
           _ (&repeat &newline)
           _ (&type :endmarker)]
-        [:expression x]))
+         (into [:expression] x)))
 
 (defn mkParserState [lexed]
   (let [[[_ _ [file _ _]]] lexed]

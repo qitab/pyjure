@@ -9,6 +9,12 @@
 
 (defmacro <- "Nesting macro" ([] nil) ([x] x) ([x & y] `(~@x (<- ~@y)))) ;; like UIOP:NEST in CL
 
+(defn vec*
+  ([l] (vec l))
+  ([a l] (into [a] l))
+  ([a b l] (into [a b] l))
+  ([a b c & l] (let [v (vec l)] (concat [a b c] (pop v) (last v)))))
+
 (defmacro ignore-errors
   ([x] `(ignore-errors ~x nil))
   ([x y] `(try ~x (catch Exception ~'_ ~y))))

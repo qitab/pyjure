@@ -84,11 +84,14 @@ def m():
 except SyntaxError as x: print(x)
 
 i=0
-
+print("initial i:", i) ; assert i==0
 for i in range(2,5):
   print(i)
+print("final i after for loop in range(2,5):", i) ; assert i==4
 
-print(i)
+print([i*10 for i in range(5,9)])
+print("final i after list comprehension in range(5,9):", i) ; assert i==4
+
 
 try: exec("""
 def foo():
@@ -142,4 +145,3 @@ def which_nonlocal():
 print(which_nonlocal())
 
 def f9(a,b=1,*d,e=2,**g): pass
-
