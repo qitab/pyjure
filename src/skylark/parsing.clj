@@ -107,6 +107,7 @@
 
 (defn source-info [x] (:source-info (meta x)))
 (defn with-source-info [x i] (and x (with-meta x (merge (meta x) {:source-info i}))))
+(defn copy-source-info [x y] (with-source-info x (source-info y)))
 
 (defn merge-info [[file start-pos _] [filetoo _ end-pos]]
   {:pre [(= file filetoo)]}

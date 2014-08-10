@@ -25,21 +25,7 @@ bar, \"1 2 3\", 0, 1, [ 2, 3, 0b101, 0x7, 0o13, 0O15, 0X11, ],
   ,baz]
 def quux ():
   {u\"x\": \"a\"}")
-           '[:module
-             [:def hello [[[[world nil] nil]] [more nil] [] nil] nil
-              [:suite
-               [:call print [] nil [] nil]
-               [:binop :add [:binop :add [:string "a b"] [:string "c d"]]
-                [:subscript foo [:string "abcd"]
-                 bar [:string "1 2 3"] [:integer 0N] [:integer 1N]
-                 [:list [:integer 2N] [:integer 3N] [:integer 5N] [:integer 7N]
-                  [:integer 11N] [:integer 13N] [:integer 17N]]
-                 [:float 1.2345E68]
-                 [:float 1.0] [:float 1.0] [:float 1.0] [:float 1.0] [:float 1.0]
-                 [:binop :add [:integer 1N] [:imaginary [:float 0.5]]]
-                 [:unaryop :neg [:integer 1N]] [:float 1.0] baz]]] []]
-             [:def quux [[] nil [] nil] nil
-              [:suite [:dict [[:string "x"] [:string "a"]]]] []]])))
+           '[:module [:def [:id "hello"] [[[[[:id "world"] nil] nil]] [[:id "more"] nil] [] nil] nil [:suite [:call [:id "print"] [[] nil [] nil]] [:binop :add [:binop :add [:string "a b"] [:string "c d"]] [:subscript [:id "foo"] [:tuple [:string "abcd"] [:id "bar"] [:string "1 2 3"] [:integer 0N] [:integer 1N] [:list [:integer 2N] [:integer 3N] [:integer 5N] [:integer 7N] [:integer 11N] [:integer 13N] [:integer 17N]] [:float 1.2345E68] [:float 1.0] [:float 1.0] [:float 1.0] [:float 1.0] [:float 1.0] [:binop :add [:integer 1N] [:imaginary [:float 0.5]]] [:unaryop :neg [:integer 1N]] [:float 1.0] [:id "baz"]]]]] []] [:def [:id "quux"] [[] nil [] nil] nil [:suite [:dict [[:string "x"] [:string "a"]]]] []]])))
   (testing "Every python lexing and parsing rule"
     (is (= (first (p all-python)) :module))))
 

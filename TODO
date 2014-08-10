@@ -67,3 +67,71 @@ Random TODO items for this skylark implementation in Clojure
    the handler and continuation see the modified variables.
    In Skylark, x = v is the shadowing of a binding, so
    the handler and continuation see the original bindings.
+
+for target in gen:
+   if ~foo: continue
+   elif ~bar: break
+   else a=f(a,target)
+return a
+
+
+  g# = gen
+  while(seq(g#)):
+    (target,g#) = decons(g#)
+    if ~foo: c=c+e ; continue
+    elif ~bar: b=c; break
+    elif ~baz: return a
+    elif ~quux: a=f(a,target)
+    a = g(a)
+
+  (let [[return? a b c]
+   (loop [g# g#
+          a  a
+          b  b
+          c  c]
+   ;; e is refered but never modified, so needn't be returned
+   ;; if any of a, b, c wasn't needed later,
+   ;; it wouldn't be needed as a return function either.
+    (if (seq g#)
+       (let [d# (decons g#)
+             target (first d#)
+             g# (second d#)]
+          (if ~foo (let [c ($add c e)] (recur g# a b c))
+              (if ~bar (let [b c] [nil a b c])
+                  (if ~baz [true a nil nil]
+                      (let [a (f a target)]
+                           (recur g# a b c))))))))]
+   ;; because return is an option, call it
+   ;; if it were either always return or never return, we wouldn't
+   ;; need the conditional
+   (if return? a ;; optimization: because a is the next position
+       CONTINUATION))
+
+* to preserve tail-position in for/while loops,
+  we can't have tail-called into a continuation function.
+  instead, we have to use some monadic transform to simulate return
+  (or we could use an exception... yikes, no).
+
+|---------------------+-------------------------------------------+---------------|
+| Form                | Tail Position                             | recur target? |
+|---------------------+-------------------------------------------+---------------|
+| fn, defn            | (fn [args] expressions tail)              | Yes           |
+| loop                | (loop [bindings] expressions tail)        | Yes           |
+| let, letfn, binding | (let [bindings] expressions tail)         | No            |
+| do                  | (do expressions tail)                     | No            |
+| if, if-not          | (if test then tail else tail)             | No            |
+| when, when-not      | (when test expressions tail)              | No            |
+| cond                | (cond test test tail ... :else else tail) | No            |
+| or, and             | (or test test ... tail)                   | No            |
+| case                | (case const const tail ... default tail)  | No            |
+|---------------------+-------------------------------------------+---------------|
+
+* Annotate each function with its stack implicit monadic transform,
+  know how to automatically call functions *lower* in the stack,
+  error out if calling higher.
+  Also available at runtime?
+  Or make it always top of stack at runtime?
+  Of course, generators have one more level than other functions...
+
+* Yield can be implemented through a delimcc monad:
+   http://okmij.org/ftp/continuations/implementations.html

@@ -4,13 +4,12 @@
         [skylark.utilities]
         [skylark.parsing]))
 
-;; This is largely based on the Python 3 grammar
+;; This is largely based on the Python 3.5 grammar
 ;; Python 3 grammar: https://docs.python.org/3.5/reference/grammar.html
 ;;
-;; For reference, see also the
-;; Python 2 grammar: https://docs.python.org/2/reference/grammar.html
-;; Our output is NOT based on the Python AST, but informed by it
-;; Output AST: https://docs.python.org/2/library/ast.html
+;; Our output is very similar to the Python AST: https://docs.python.org/3.5/library/ast.html
+;; except that tuples are headed by keywords rather than new record types.
+;; other differences: Class
 
 ;; This parser is written using the parsing monad from parsing.clj, with
 ;; type State = InputStream×LastTokenInfo
@@ -47,7 +46,7 @@
 (def &dots0 (&fold (&type-if #{:dot :ellipsis}) #(+ % ({:dot 1 :ellipsis 3} (first %2))) 0))
 (def &dots (&let [x &dots0 _ (if (= x 0) &fail &nil)] x))
 (def &colon (&type :colon))
-(def &name (&let [n (&type :id)] (with-source-info (symbol (second n)) (source-info n))))
+(def &name (&type :id))
 
 (defn &tag [tag m] (&letx [x m] [tag x]))
 (defn &prefixed [prefix m] (&letx [_ (&type prefix) x m] (into [prefix] x)))
@@ -163,20 +162,19 @@
 (def &arglist (&argslist &argument &test false))
 
 (def &slice-op (&do &colon (&optional &test)))
-(def &subscript (&or &test
-                     (&letx [x (&optional &test)
-                             y (&do &colon (&optional &test))
-                             z (&optional &slice-op)]
-                            [:slice [x y z]])))
-(def &subscriptlist (&non-empty-maybe-terminated-list &subscript))
+(def &subscript (&let [x (&optional &test)
+                       s (let [s (&vector (&return :slice) (&return x) &slice-op (&optional &slice-op))]
+                           (if x (&or s (&return x)) s))]))
+(def &subscriptlist (&tuple-or-singleton &subscript))
 (defn &comprehension [kind m]
-  (&letx [x m
+  (&leti [x m
           f (&optional &comp-for)
           [l c] (if f &nil (&vector (&list (&do &comma m)) &optional-comma))]
-         (cond f [({:tuple :generator, :list :list-comp, :dict :dict-comp, :set :set-comp} kind)
-                  x f]
-               (and (empty? l) (nil? c) (= kind :tuple)) [:identity x]
-               :else (vec* kind x l))))
+         (cond f (with-source-info
+                   [({:tuple :generator, :list :list-comp, :dict :dict-comp, :set :set-comp} kind)
+                    x f] info&)
+               (and (empty? l) (nil? c) (= kind :tuple)) x
+               :else (with-source-info (vec* kind x l) info&))))
 
 (def &yield-expr (&do (&type :yield)
                       (&or (&do (&type :from) (&tag :yield-from &test))
@@ -190,8 +188,8 @@
                 &name (&type-if #{:integer :float :imaginary :ellipsis :None :True :False})
                 (&let [x (&non-empty-list (&type-if #{:string :bytes}))]
                       (merge-strings x))))
-(def &trailer (&or (&letx [x (&paren &arglist)] (vec* :call x))
-                   (&letx [x (&paren \[ \] &subscriptlist)] (vec* :subscript x))
+(def &trailer (&or (&letx [x (&paren &arglist)] [:call x])
+                   (&letx [x (&paren \[ \] &subscriptlist)] [:subscript x])
                    (&letx [x (&do &dot &name)] [:attribute x])))
 (def &atom-trailer
   (&let [a &atom t (&list &trailer)]
@@ -246,8 +244,8 @@
    (&paren &typed-args-list)
    (&optional (&do (&type :rarrow) &test)) ;; PEP 3107 type annotations: return-type
    &colon-suite))
-(def &class-definition ;; Python grammar says testlist, but this is not a tuple-or-singleton
-  (&prefixed-vector :class &name (&optional (&paren (&maybe-terminated-list &test))) &colon-suite))
+(def &class-definition
+  (&prefixed-vector :class &name (&optional (&paren &arglist)) &colon-suite))
 
 (def &augassign
   (&type-if #{:iadd :isub :imul :ifloordiv :imod :iand :ior :ixor :irshift :ilshift :ipow}))

@@ -89,8 +89,22 @@ for i in range(2,5):
   print(i)
 print("final i after for loop in range(2,5):", i) ; assert i==4
 
+i=0 ; count=0
+print("initial i:", i) ; assert i==0
+for i in range(2,5):
+  for i in range(6,9):
+    print(i)
+    count += 1
+print("final i after for loop in range(6,9) nested in loop in range(2,5):", i)
+assert i==8 ; assert count==9
+
+i=0
+print("initial i:", i) ; assert i==0
 print([i*10 for i in range(5,9)])
-print("final i after list comprehension in range(5,9):", i) ; assert i==4
+print("final i after list comprehension in range(5,9):", i) ; assert i==0
+
+print([i*10 for i in range(2,5) for i in range(5,9)])
+print("final i after list comprehension in range(5,9) nested in range(2,5):", i) ; assert i==0
 
 
 try: exec("""
@@ -145,3 +159,23 @@ def which_nonlocal():
 print(which_nonlocal())
 
 def f9(a,b=1,*d,e=2,**g): pass
+
+print(range(0,100)[95:])
+
+i="toplevel"
+def f():
+  i="f-level"
+  def g():
+    i="g-level"
+    del i # Makes it unbound, but happily doesn't change who is bound where
+    return i
+  return g()
+try: f() ; assert False
+except UnboundLocalError as x: print(x)
+
+def f():
+  i=1
+  a=[1,2,3,4,5]
+  del i,a[i]
+  return a
+print(f())
