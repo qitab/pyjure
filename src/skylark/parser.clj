@@ -18,6 +18,16 @@
 ;; a sequence of tokens of the form [type data info],
 ;; where info is of the form [file [start-line start-column] [end-line end-column]]
 
+;; The results of parsing is vectors headed by a keyword with source info in meta-data:
+;; (with-meta [:head args...] {:source-info info})
+;;
+;; Differences from the python AST https://docs.python.org/3.5/library/ast.html
+;; 0- we use lists headed by lower-case keywords, they use CamelCase node classes,
+;;    and the names don't exactly match, e.g. :cond instead of IfExp.
+;; 1- we put the source-info in node meta-data, not as additional "attributes".
+;; 2- we use lists for sexps, vectors for internal data sequences.
+
+
 
 ;;; Basic monad constructors
 (defrecord ParserState [in prev-info] ; our State
@@ -43,7 +53,7 @@
 (def &comma (&type :comma))
 (def &optional-comma (&optional &comma))
 (def &dot (&type :dot))
-(def &dots0 (&fold (&type-if #{:dot :ellipsis}) #(+ % ({:dot 1 :ellipsis 3} (first %2))) 0))
+(def &dots0 (&fold (&type-if #{:dot :Ellipsis}) #(+ % ({:dot 1 :Ellipsis 3} (first %2))) 0))
 (def &dots (&let [x &dots0 _ (if (= x 0) &fail &nil)] x))
 (def &colon (&type :colon))
 (def &name (&type :id))
@@ -209,7 +219,8 @@
 (def &comp-op (&or (&letx [_ (&type :not) _ (&type :in)] [:not-in nil])
                    (&letx [_ (&type :is) _ (&type :not)] [:is_not nil])
                    (&type-if #{:lt :gt :eq :ge :le :ne :in :is})))
-(def &comparison (&multi-op-expr &comp-op &expr #(do [:compare % (map first %2) (map second %2)])))
+(def &comparison (&multi-op-expr &comp-op &expr
+                                 #(do [:compare % (vec (map first %2)) (vec (map second %2))])))
 (def &not-test (&unary-op-expr #{:not} &comparison))
 (def &and-test (&op-expr :and &not-test #(into [:boolop :and] %)))
 (def &or-test (&op-expr :or &and-test #(into [:boolop :or] %)))
@@ -220,7 +231,7 @@
 (def &test-nocond (&or &or-test &lambdef-nocond))
 (def &test
   (&or (&mod-expr &or-test (&vector (&do (&type :if) &or-test) (&do (&type :else) &test))
-                  #(do [:if (first %2) % (second %2)]))
+                  #(do [:cond (list [(first %2) %]) (second %2)]))
        &lambdef))
 
 (def &exprlist (&tuple-or-singleton (&or &expr &star-expr)))
@@ -291,7 +302,9 @@
    :from
    (&or (&vector &dots0 &dotted-name) (&vector &dots &nil))
    (&do (&type :import)
-        (&or (&type :mul) (&paren &import-as-names) &import-as-names))))
+        (&or (&letx [x (&type :mul)] [:all])
+             (&paren &import-as-names)
+             &import-as-names))))
 (def &import-statement (&or &import-name &import-from))
 
 (def &small-statement
@@ -303,7 +316,7 @@
          (if (empty? (rest l)) (first l) (with-source-info (into [:suite] l) info&))))
 
 (def &if-statement
-  (&prefixed-vector :if
+  (&prefixed-vector :cond
                     (&non-empty-separated-list (&vector &test &colon-suite) (&type :elif))
                     (&optional (&do (&type :else) &colon-suite))))
 
@@ -371,7 +384,7 @@
   (&letx [x &testlist
           _ (&repeat &newline)
           _ (&type :endmarker)]
-         (into [:expression] x)))
+         [:expression x]))
 
 (defn mkParserState [lexed]
   (let [[[_ _ [file _ _]]] lexed]

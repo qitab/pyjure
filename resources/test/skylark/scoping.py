@@ -174,8 +174,20 @@ try: f() ; assert False
 except UnboundLocalError as x: print(x)
 
 def f():
-  i=1
-  a=[1,2,3,4,5]
-  del i,a[i]
-  return a
-print(f())
+  try:
+    i=1
+    a=[1,2,3,4,5]
+    del i,a[i]
+    return a
+  except UnboundLocalError as x: print(x)
+f()
+
+def f():
+  ex = UnboundLocalError
+  try:
+    ex = Exception
+    assert False
+  except ex as x: print(type(x)) # in python, the handler sees the side effect!
+print(41)
+f()
+print(42)

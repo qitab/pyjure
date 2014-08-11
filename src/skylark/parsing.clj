@@ -99,6 +99,11 @@
 (defn &non-empty-list [m] (&bind m (fn [a] (&list m (list a)))))
 (defn &repeat [m] (&fold m (constantly nil) nil))
 
+(defn &seq [s]
+  (fn [σ] (let [[r σ] (reduce (fn [[l σ] x] (let [[y σ] (x σ)] [(conj l y) σ])) [s σ])]
+            [(reverse r) σ])))
+(defn &map [f s] (&seq (map f s)))
+
 
 ;;; Source information processing
 
@@ -109,9 +114,11 @@
 (defn with-source-info [x i] (and x (with-meta x (merge (meta x) {:source-info i}))))
 (defn copy-source-info [x y] (with-source-info x (source-info y)))
 
-(defn merge-info [[file start-pos _] [filetoo _ end-pos]]
-  {:pre [(= file filetoo)]}
-  [file start-pos end-pos])
+(defn merge-info [[file start-pos _ :as i1] [filetoo _ end-pos :as i2]]
+  {:pre [(or (nil? i1) (nil? i2) (= file filetoo))]}
+  (cond (nil? i1) i2
+        (nil? i2) i1
+        :else [file start-pos end-pos]))
 
 (defmacro &leti [bindings value]
   ;; not hygienic: anaphorically exposes bindings to start& end& info&

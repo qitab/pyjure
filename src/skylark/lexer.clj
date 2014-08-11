@@ -279,7 +279,7 @@
 
 (def delimiters ;; Should we prefix them all with s/ ? Also operators, keywords...
   '(("," comma) (":" colon) ("." dot) (";" semicolon)
-    ("@" matmul) ("=" assign) ("..." ellipsis)
+    ("@" matmul) ("=" assign) ("..." Ellipsis)
     ;; Augmented assignment operators, with the name of corresponding magic operator, as per
     ;; http://www.rafekettler.com/magicmethods.html
     ("+=" iadd) ("-=" isub) ("*=" imul) ("/=" imul) ("//=" ifloordiv) ("%=" imod)

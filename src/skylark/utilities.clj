@@ -4,9 +4,6 @@
 ;; TODO: move them to leijure?
 ;; or to one of https://github.com/weavejester/medley or https://github.com/flatland/useful
 
-(defn NIY [& args] (throw (Throwable. "Not Implemented Yet")))
-(defn NFN [& args] nil) ;; nil for now
-
 (defmacro <- "Nesting macro" ([] nil) ([x] x) ([x & y] `(~@x (<- ~@y)))) ;; like UIOP:NEST in CL
 
 (defn vec*
@@ -135,3 +132,6 @@ The macro expansion has relatively low overhead in space or time."
   (if-let [{tag ::tag info ::source-info fmt ::format args ::args :as m} (ex-data ex)]
     (str tag (when info (str " at " info))
          (when fmt (str ": " (apply format fmt (map m args)))))))
+
+(defn NIY [& args] (apply $error "Not Implemented Yet" args))
+(defn NFN [& args] nil) ;; nil for now
