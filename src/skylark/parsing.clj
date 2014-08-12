@@ -120,6 +120,8 @@
         (nil? i2) i1
         :else [file start-pos end-pos]))
 
+(defn merge-source-info [a x y] (with-source-info a (merge-info (source-info x) (source-info y))))
+
 (defmacro &leti [bindings value]
   ;; not hygienic: anaphorically exposes bindings to start& end& info&
   `(&let ~(into `[~'start& &next-info] (into bindings `[~'end& &prev-info]))
