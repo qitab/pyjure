@@ -231,7 +231,7 @@
 (def &test-nocond (&or &or-test &lambdef-nocond))
 (def &test
   (&or (&mod-expr &or-test (&vector (&do (&type :if) &or-test) (&do (&type :else) &test))
-                  #(do [:cond (list [(first %2) %]) (second %2)]))
+                  #(do [:cond [[(first %2) %]] (second %2)]))
        &lambdef))
 
 (def &exprlist (&tuple-or-singleton (&or &expr &star-expr)))
@@ -316,9 +316,10 @@
          (if (empty? (rest l)) (first l) (with-source-info (into [:suite] l) info&))))
 
 (def &if-statement
-  (&prefixed-vector :cond
-                    (&non-empty-separated-list (&vector &test &colon-suite) (&type :elif))
-                    (&optional (&do (&type :else) &colon-suite))))
+  (&let [_ (&type :if)
+         clauses (&non-empty-separated-list (&vector &test &colon-suite) (&type :elif))
+         else (&optional (&do (&type :else) &colon-suite))]
+        (vector :cond (vec clauses) else)))
 
 (def &while-statement
   (&prefixed-vector :while &test &colon-suite (&optional (&do (&type :else) &colon-suite))))
