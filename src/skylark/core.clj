@@ -8,7 +8,7 @@
             [leijure.delta-position :as position]
             [skylark.lexer :as lexer]
             [skylark.parser :as parser]
-            ;; [skylark.desugar :as desugar]
+            [skylark.desugar :as desugar]
             [skylark.syntax-analysis :as syntax-analysis]
             [skylark.clojurifier :as clojurifier]))
 
@@ -30,8 +30,8 @@
    ;; → AST: nested ^{:source-info Info} [type:keyword & data:*]
    :parse parser/parse
 
-   ;; → AST1: desugared language
-   ;; :desugar desugar/desugar
+   ;; → AST1: smaller, desugared language
+   :desugar desugar/desugar
 
    ;; TODO: insert a macro-expansion phase HERE,
    ;; then refactor this and subsequent phases into a function eval that

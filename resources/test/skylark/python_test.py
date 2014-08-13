@@ -88,8 +88,8 @@ def make_incer(x):
   return inc
 
 for i in range(10,100):
+  if 10 <= i < 20: continue
   if i > 50: break
-  if i < 20: continue
   print(i)
 else: print("nope")
 

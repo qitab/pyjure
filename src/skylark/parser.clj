@@ -58,9 +58,8 @@
 (def &colon (&type :colon))
 (def &name (&type :id))
 
-(defn &tag [tag m] (&letx [x m] [tag x]))
-(defn &prefixed [prefix m] (&letx [_ (&type prefix) x m] (into [prefix] x)))
-(defn &prefixed-vector [prefix & ms] (&prefixed prefix (apply &vector-f ms)))
+(defn &prefixed* [prefix & ms] (&info (&do (&type prefix) (apply &tag* prefix ms))))
+(defn &prefixed [prefix & ms] (&info (&do (&type prefix) (apply &tag prefix ms))))
 
 (defn &non-empty-separated-list
   ([m] (&non-empty-separated-list m &comma))
@@ -80,16 +79,16 @@
 (defn &tuple-or-singleton [m] ;; have expr-context :load :store :del :aug-load :aug-store :param ???
   (&leti [l (&non-empty-separated-list m)
           s &optional-comma]
-         (if (and (empty? (rest l)) (nil? s)) (first l) (with-source-info (vec* :tuple l) info&))))
+         (if (and (empty? (rest l)) (nil? s)) (first l) (vec* :tuple l))))
 
 (defn &paren
   ([m] (&paren \( \) m))
-  ([opener closer m] (&let [_ (&type opener) x m _ (&type closer)] x)))
+  ([opener closer m] (&let [_ (&type opener) * m _ (&type closer)])))
 
 (def &newline (&type :newline))
 
 (defn &mod-expr [m modifier f]
-  (&leti [x m mod (&optional modifier)] (if mod (with-source-info (f x mod) info&) x)))
+  (&leti [x m mod (&optional modifier)] (if mod (f x mod) x)))
 
 (defn &op-expr [op m f]
   (&mod-expr m (&non-empty-list (&do (&type op) m)) #(f (cons % %2))))
@@ -136,16 +135,27 @@
 
 (def &testlist (&tuple-or-singleton &test))
 
-(defn &argslist [arg rarg defaults]
+;; The reason that keywords are test nodes instead of NAME is that using NAME
+;; results in an ambiguity. ast.c makes sure it's a NAME.
+(def &argument (&mod-expr &test (&or &comp-for (&prefixed :assign &test))
+                          #(if (= (first %2) :assign)
+                             [:keyarg % (second %2)]
+                             [:generator % %2])))
+
+(defn &argslist [defining typed]
   ;; NB: Like Python 3, unlike Python 2, we don't allow destructuring of arguments
-  (let [&args (if defaults
-                (&non-empty-separated-list (&vector arg (&optional (&do (&type :assign) &test))))
-                (&non-empty-separated-list arg))]
+  (let [&args (&non-empty-separated-list
+               (if defining
+                 (&info (&tag :argument &name
+                              (if typed (&optional (&do &colon &test)) &nil)
+                              (&optional (&do (&type :assign) &test))))
+                 &argument))
+        &rarg (if defining &name &test)]
     (&let [[positional-args more]
            (&or (&vector &args &optional-comma)
                 (&return [nil true]))
            [rest-arg yetmore]
-           (if more (&or (&vector (&do (&type :mul) rarg) &optional-comma)
+           (if more (&or (&vector (&do (&type :mul) &rarg) &optional-comma)
                          (&return [nil more]))
                (&return [nil nil]))
            [more-args stillmore]
@@ -154,53 +164,45 @@
                   (&return [nil yetmore]))
              (&return [nil nil]))
            keyword-arg
-           (if stillmore (&optional (&do (&type :pow) rarg)) &nil)
+           (if stillmore (&optional (&do (&type :pow) &rarg)) &nil)
            _ (if (and (nil? keyword-arg) (vector? stillmore)) &fail &nil)]
           [(vec positional-args) rest-arg (vec more-args) keyword-arg])))
 
 ;; Note: these correspond to _optional_ [*argslist] in the python grammar.
-(def &varargslist (&argslist &name &name true))
-(def &typed-arg (&vector &name (&optional (&do &colon &test))))
-(def &typed-args-list (&argslist &typed-arg &typed-arg true))
-
-;; The reason that keywords are test nodes instead of NAME is that using NAME
-;; results in an ambiguity. ast.c makes sure it's a NAME.
-(def &argument (&mod-expr &test (&or &comp-for (&prefixed-vector :assign &test))
-                          #(if (= (first %2) :assign)
-                             [:keyarg [% (second %2)]]
-                             [:generator % %2])))
-(def &arglist (&argslist &argument &test false))
+(def &varargslist (&argslist true false))
+(def &typed-args-list (&argslist true true))
+(def &arglist (&argslist false false))
 
 (def &slice-op (&do &colon (&optional &test)))
 (def &subscript (&let [x (&optional &test)
-                       s (let [s (&vector (&return :slice) (&return x) &slice-op (&optional &slice-op))]
-                           (if x (&or s (&return x)) s))]))
+                       * (let [&s (&into [:slice x] &slice-op (&optional &slice-op))]
+                           (if x (&or &s (&return x)) &s))]))
 (def &subscriptlist (&tuple-or-singleton &subscript))
 (defn &comprehension [kind m]
   (&leti [x m
           f (&optional &comp-for)
           [l c] (if f &nil (&vector (&list (&do &comma m)) &optional-comma))]
-         (cond f (with-source-info
-                   [({:tuple :generator, :list :list-comp, :dict :dict-comp, :set :set-comp} kind)
-                    x f] info&)
+         (cond f [({:tuple :generator, :list :list-comp, :dict :dict-comp, :set :set-comp} kind) x f]
                (and (empty? l) (nil? c) (= kind :tuple)) x
-               :else (with-source-info (vec* kind x l) info&))))
+               :else (vec* kind x l))))
 
 (def &yield-expr (&do (&type :yield)
                       (&or (&do (&type :from) (&tag :yield-from &test))
                            (&tag :yield (&optional &testlist)))))
 
+(def &dict-pair (&info (&tag :tuple &test (&do &colon &test)))) ;; :dict-pair would be redundant
+
 (def &atom (&or (&paren (&or &yield-expr (&comprehension :tuple &test-star-expr) (&return :zero-uple)))
                 (&paren \[ \] (&or (&comprehension :list &test-star-expr) (&return :empty-list)))
-                (&paren \{ \} (&or (&comprehension :dict (&vector &test (&do &colon &test)))
+                (&paren \{ \} (&or (&comprehension :dict &dict-pair)
                                    (&comprehension :set &test)
                                    (&return :empty-dict)))
                 &name (&type-if #{:integer :float :imaginary :ellipsis :None :True :False})
                 (&let [x (&non-empty-list (&type-if #{:string :bytes}))]
                       (merge-strings x))))
-(def &trailer (&or (&letx [x (&paren &arglist)] [:call x])
-                   (&letx [x (&paren \[ \] &subscriptlist)] [:subscript x])
-                   (&letx [x (&do &dot &name)] [:attribute x])))
+(def &trailer (&info (&or (&tag :call (&paren &arglist))
+                          (&tag :subscript (&paren \[ \] &subscriptlist))
+                          (&tag :attribute (&do &dot &name)))))
 (def &atom-trailer
   (&let [a &atom t (&list &trailer)]
         (reduce (fn [x [tag & args :as o]]
@@ -215,30 +217,29 @@
 (def &and-expr (&op-expr :and_ &shift-expr (binop* :and_)))
 (def &xor-expr (&op-expr :xor &and-expr (binop* :xor)))
 (def &expr (&op-expr :or_ &xor-expr (binop* :or_)))
-(def &star-expr (&letx [_ (&type :mul) x &expr] [:starred x]))
-(def &comp-op (&or (&letx [_ (&type :not) _ (&type :in)] [:not-in nil])
-                   (&letx [_ (&type :is) _ (&type :not)] [:is_not nil])
+(def &star-expr (&info (&do (&type :mul) (&tag :starred &expr))))
+(def &comp-op (&or (&info (&do (&type :not) (&type :in) (&tag :not-in)))
+                   (&info (&do (&type :is) (&type :not) (&tag :is_not)))
                    (&type-if #{:lt :gt :eq :ge :le :ne :in :is})))
 (def &comparison (&multi-op-expr &comp-op &expr
                                  #(do [:compare % (vec (map first %2)) (vec (map second %2))])))
 (def &not-test (&unary-op-expr #{:not} &comparison))
 (def &and-test (&op-expr :and &not-test #(into [:boolop :and] %)))
 (def &or-test (&op-expr :or &and-test #(into [:boolop :or] %)))
-(defn &lambdef0 [m]
-  (&prefixed-vector :lambda &varargslist (&do &colon m)))
+(defn &lambdef0 [m] (&prefixed :lambda &varargslist (&do &colon m)))
 (def &lambdef (&lambdef0 &test))
 (def &lambdef-nocond (&lambdef0 &test-nocond))
 (def &test-nocond (&or &or-test &lambdef-nocond))
-(def &test
-  (&or (&mod-expr &or-test (&vector (&do (&type :if) &or-test) (&do (&type :else) &test))
-                  #(do [:cond [[(first %2) %]] (second %2)]))
-       &lambdef))
+(def &test (&or (&mod-expr &or-test (&vector (&do (&type :if) &or-test) (&do (&type :else) &test))
+                           (fn [t [x f]] [:if x t f]))
+                &lambdef))
 
 (def &exprlist (&tuple-or-singleton (&or &expr &star-expr)))
-(def &comp-for (&leti [_ (&type :for) x &exprlist _ (&type :in) y &or-test z (&optional &comp-iter)]
-                      (cons (with-source-info [:comp-for x y] info&) z)))
-(def &comp-if (&leti [_ (&type :if) x &test-nocond y (&optional &comp-iter)]
-                     (cons (with-source-info [:comp-if x] info&) y)))
+(def &comp-for (&lift cons (&info (&do (&type :for)
+                                       (&tag :comp-for &exprlist (&do (&type :in) &or-test))))
+                      (&optional &comp-iter)))
+(def &comp-if (&lift cons (&info (&do (&type :if) (&tag :comp-if &test-nocond)))
+                     (&optional &comp-iter)))
 (def &comp-iter (&or &comp-for &comp-if))
 
 (def &suite
@@ -248,20 +249,21 @@
               _ (&type :dedent)]
              (vec* :suite l))))
 (def &colon-suite (&do &colon &suite))
+(def &else (&optional (&do (&type :else) &colon-suite)))
 
 (def &function-definition
-  (&prefixed-vector
+  (&prefixed
    :def &name
    (&paren &typed-args-list)
    (&optional (&do (&type :rarrow) &test)) ;; PEP 3107 type annotations: return-type
    &colon-suite))
 (def &class-definition
-  (&prefixed-vector :class &name (&optional (&paren &arglist)) &colon-suite))
+  (&prefixed :class &name (&optional (&paren &arglist)) &colon-suite))
 
 (def &augassign
   (&type-if #{:iadd :isub :imul :ifloordiv :imod :iand :ior :ixor :irshift :ilshift :ipow}))
 
-(def &dotted-name (&non-empty-separated-list &name &dot))
+(def &dotted-name (&info (&tag* :dotted-name (&non-empty-separated-list &name &dot))))
 (def &import-as-name (&vector &name (&optional (&do (&type :as) &name))))
 (def &dotted-as-name (&vector &dotted-name (&optional (&do (&type :as) &name))))
 (def &import-as-names (&non-empty-maybe-terminated-list &import-as-name))
@@ -276,33 +278,33 @@
                  (&non-empty-list (&do (&type :assign) (&or &yield-expr &testlist-star-expr)))
                  &nil)]
          (cond (nil? l) x
-               (vector? l) (with-source-info [:augassign x (first l) (second l)] info&)
-               :else (let [v (vec (cons x l))] (with-source-info [:assign (pop v) (last v)] info&)))))
+               (vector? l) [:augassign x (first l) (second l)]
+               :else (let [v (vec (cons x l))] [:assign (pop v) (last v)]))))
 
 ;; The python grammar specifies exprlist, but we interpret it here as a &n-e-m-t-list,
 ;; whereas we interpret &exprlist as a &tuple-or-singleton
-(def &del-statement (&prefixed :del (&non-empty-maybe-terminated-list (&or &expr &star-expr))))
+(def &del-statement (&prefixed* :del (&non-empty-maybe-terminated-list (&or &expr &star-expr))))
 
-(def &global-statement (&prefixed :global (&non-empty-separated-list &name)))
-(def &nonlocal-statement (&prefixed :nonlocal (&non-empty-separated-list &name)))
-(def &assert-statement (&prefixed-vector :assert &test (&optional (&do &comma &test))))
+(def &global-statement (&prefixed* :global (&non-empty-separated-list &name)))
+(def &nonlocal-statement (&prefixed* :nonlocal (&non-empty-separated-list &name)))
+(def &assert-statement (&prefixed :assert &test (&optional (&do &comma &test))))
 (def &pass-statement (&type :pass))
 (def &break-statement (&type :break))
 (def &continue-statement (&type :continue))
-(def &return-statement (&prefixed-vector :return (&optional &testlist)))
+(def &return-statement (&prefixed :return (&optional &testlist)))
 (def &yield-statement &yield-expr)
 (def &raise-statement
-  (&prefixed :raise (&optional (&vector &test (&optional (&do (&type :from) &test))))))
+  (&prefixed* :raise (&optional (&vector &test (&optional (&do (&type :from) &test))))))
 (def &flow-statement
   (&or &break-statement &continue-statement &return-statement &raise-statement &yield-statement))
 
-(def &import-name (&prefixed :import &dotted-as-names))
+(def &import-name (&prefixed* :import &dotted-as-names))
 (def &import-from
-  (&prefixed-vector
+  (&prefixed
    :from
    (&or (&vector &dots0 &dotted-name) (&vector &dots &nil))
    (&do (&type :import)
-        (&or (&letx [x (&type :mul)] [:all])
+        (&or (&leti [_ (&type :mul)] [:all])
              (&paren &import-as-names)
              &import-as-names))))
 (def &import-statement (&or &import-name &import-from))
@@ -313,51 +315,44 @@
 
 (def &simple-statement
   (&leti [l (&non-empty-maybe-terminated-list &small-statement (&type :semicolon)) _ &newline]
-         (if (empty? (rest l)) (first l) (with-source-info (into [:suite] l) info&))))
+         (if (empty? (rest l)) (first l) (into [:suite] l))))
 
 (def &if-statement
-  (&let [_ (&type :if)
-         clauses (&non-empty-separated-list (&vector &test &colon-suite) (&type :elif))
-         else (&optional (&do (&type :else) &colon-suite))]
-        (vector :cond (vec clauses) else)))
+  (&do (&type :if)
+       (&tag :cond (&lift vec (&non-empty-separated-list (&vector &test &colon-suite) (&type :elif)))
+             &else)))
 
-(def &while-statement
-  (&prefixed-vector :while &test &colon-suite (&optional (&do (&type :else) &colon-suite))))
+(def &while-statement (&prefixed :while &test &colon-suite &else))
 
 (def &for-statement
-  (&prefixed-vector :for &exprlist (&do (&type :in) &testlist) &colon-suite
-                    (&optional (&do (&type :else) &colon-suite))))
+  (&prefixed :for &exprlist (&do (&type :in) &testlist) &colon-suite &else))
 
 ;; NB compile.c makes sure that the default except clause is last
-(def &except-clause
-  ;; Differs from Python 2
-  (&prefixed :except (&optional (&vector &test (&optional (&do (&type :as) &name))))))
+(def &except-clause ;; Differs from Python 2
+  (&leti [_ (&type :except)
+          [ex-type target] (&optional (&vector &test (&optional (&do (&type :as) &name))))
+          body &colon-suite]
+         [:except ex-type target body]))
 
 (def &try-statement
-  (&prefixed-vector :try &colon-suite
-                    (&or (&vector
-                          (&non-empty-list (&vector &except-clause &colon-suite))
-                          (&optional (&do (&type :else) &colon-suite))
-                          (&optional (&do (&type :finally) &colon-suite)))
-                         (&vector &nil &nil (&do (&type :finally) &colon-suite)))))
+  (&let [_ (&type :try)
+         body &colon-suite
+         [excepts else] (&optional (&vector (&non-empty-list &except-clause) &else))
+         finally (&do (&type :finally) &colon-suite)]
+        [:try body (vec excepts) else finally]))
 
 (def &with-item (&vector &test (&optional (&do (&type :as) &expr))))
 
 (def &with-statement
-  (&prefixed-vector :with (&non-empty-separated-list &with-item) &colon-suite))
+  (&prefixed :with (&non-empty-separated-list &with-item) &colon-suite))
 
 (def &decorator
-  (&letx [_ (&type :matmul)
-          name &dotted-name
-          args (&optional (&paren &arglist))
-          _ &newline]
-         [:decorator name args]))
+  (&do (&type :matmul) (&do1 (&tag :decorator &dotted-name (&optional (&paren &arglist))) &newline)))
 
 (def &definition
-  (&leti [decorators (&list &decorator)
-          definition (&or &class-definition &function-definition)]
-         (let [m (meta definition)]
-           (with-meta (conj definition (vec decorators)) m))))
+  (&let [decorators (&list &decorator)
+         definition (&info (&or &class-definition &function-definition))]
+        (copy-source-info (conj definition (vec decorators)) definition)))
 
 (def &compound-statement
   (&or &if-statement &while-statement &for-statement &try-statement &with-statement &definition))
@@ -372,20 +367,17 @@
 ;;   &eval-input is the input for the eval() and input() functions.
 
 (def &single-input
-  (&letx [x (&or &newline &simple-statement (&do1 &compound-statement &newline))]
-         [:interactive x]))
+  (&info (&tag :interactive
+               (&or (&do &newline (&tag :pass)) &simple-statement (&do1 &compound-statement &newline)))))
 
 (def &file-input
-  (&letx [_ (&repeat &newline)
-          x (&list (&do1 &statement (&repeat &newline)))
-          _ (&type :endmarker)]
-         (into [:module] x)))
+  (&info (&do (&repeat &newline)
+              (&do1 (&tag* :module (&list (&do1 &statement (&repeat &newline))))
+                    (&type :endmarker)))))
 
 (def &eval-input
-  (&letx [x &testlist
-          _ (&repeat &newline)
-          _ (&type :endmarker)]
-         [:expression x]))
+  (&info (&do1 (&tag :expression &testlist)
+               (&repeat &newline) (&type :endmarker))))
 
 (defn mkParserState [lexed]
   (let [[[_ _ [file _ _]]] lexed]
@@ -394,4 +386,3 @@
 (defn parse
   ([lexed] (parse &file-input lexed))
   ([parser lexed] (-> lexed mkParserState parser first)))
-

@@ -133,5 +133,11 @@ The macro expansion has relatively low overhead in space or time."
     (str tag (when info (str " at " info))
          (when fmt (str ": " (apply format fmt (map m args)))))))
 
+(defn $syntax-error
+  ([x fmt args map] ($error "Syntax Error" 'syntax-error fmt args
+                            (merge map {:expr x :source-info (meta x)})))
+  ([x fmt] ($syntax-error x fmt [:expr] {}))
+  ([x] ($syntax-error x nil nil {})))
+
 (defn NIY [& args] (apply $error "Not Implemented Yet" args))
 (defn NFN [& args] nil) ;; nil for now

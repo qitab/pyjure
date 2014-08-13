@@ -1,7 +1,7 @@
 (ns skylark.parsing
   (:use [skylark.utilities]))
 
-;; TODO: rename to state-monad ?
+;; TODO: rename to state-monad or just monad?
 
 ;; Parsing monad: a state monad with some extensions.
 ;; monad Parser α = State → α×State
@@ -99,11 +99,13 @@
 (defn &non-empty-list [m] (&bind m (fn [a] (&list m (list a)))))
 (defn &repeat [m] (&fold m (constantly nil) nil))
 
-(defn &seq [s]
-  (fn [σ] (let [[r σ] (reduce (fn [[l σ] x] (let [[y σ] (x σ)] [(conj l y) σ])) [s σ])]
-            [(reverse r) σ])))
+(defn &seq [s] (if-let [[m & r] (seq s)] (&lift cons m (&seq r)) &nil))
 (defn &map [f s] (&seq (map f s)))
 
+(defn &into [dest & ms] (&let [s (&seq ms)] (into dest s)))
+(defn &into* [dest & ms] (&let [s (&seq ms)] (into dest (apply list* s))))
+(defn &tag [tag & ms] (apply &into [tag] ms))
+(defn &tag* [tag & ms] (apply &into* [tag] ms))
 
 ;;; Source information processing
 
@@ -111,7 +113,8 @@
 (defn &next-info [σ] [(next-info σ) σ])
 
 (defn source-info [x] (:source-info (meta x)))
-(defn with-source-info [x i] (and x (with-meta x (merge (meta x) {:source-info i}))))
+(defn with-source-info [x i]
+  (and x (let [m (meta x)] (if (:source-info m) x (with-meta x (merge m {:source-info i}))))))
 (defn copy-source-info [x y] (with-source-info x (source-info y)))
 
 (defn merge-info [[file start-pos _ :as i1] [filetoo _ end-pos :as i2]]
@@ -122,13 +125,12 @@
 
 (defn merge-source-info [a x y] (with-source-info a (merge-info (source-info x) (source-info y))))
 
-(defmacro &leti [bindings value]
-  ;; not hygienic: anaphorically exposes bindings to start& end& info&
-  `(&let ~(into `[~'start& &next-info] (into bindings `[~'end& &prev-info]))
-         (let [~'info& (merge-info ~'start& ~'end&)] ~value)))
-(defmacro &letx [bindings value] `(&leti ~bindings (with-source-info ~value ~'info&)))
-(defn &info [m] (&letx [x m] x))
-
+(defn &info [m]
+  (&let [start &next-info
+         value m
+         end &prev-info]
+        (with-source-info value (merge-info start end))))
+(defmacro &leti [bindings value] `(&info (&let ~bindings ~value)))
 
 ;; In a grammar with mutual recursion between non-terminals,
 ;; you need to declare forward references to some non-terminals to break cycles.

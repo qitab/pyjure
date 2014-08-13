@@ -30,40 +30,51 @@
 ;; ? binary and unary operations are expanded into calls to primitive functions.
 
 
-;; A macro-environment maps symbols to macros
+;; A macro-environment maps lists of symbols (as in dotted names) to macros
 (def null-macro-environment {})
 
-(def gensym-counter (ref -1))
-(defn $gensym []
-  [:id (str "g-" (dosync (alter gensym-counter inc)))])
+(defn namify [x]
+  (match [x]
+    [[:id n]] [n]
+    [[:dotted-name & ns]] (map second ns)
+    [[:attribute y [:id n]]] (if-let [yn (namify y)] (conj yn n))))
+
+(defn unnamify [n x]
+  {:pre ((vector? n) (pos? (count n)))}
+  (letfn [(v [& args] (copy-source-info (vec args) x))]
+    (if (<= 2 (count n))
+      (v :attribute (unnamify (pop n) x) (v :id (last n)))
+      (v :id (first n)))))
+
+(defn &macro [kind n]
+  (fn [E] (if-let [m (E (namify n))] (m kind))))
+(defn &call-macro [n E]
+  (&let [m (&macro :call n)] (when m (fn [x] (fn [E] (m x E))))))
+(defn &decorator-macro [n E]
+  (&let [m (&macro :decorator n)] (when m (fn [args x] (fn [E] (m args x E))))))
+(defn &with-macro [n E]
+  (&let [m (&macro :with n)] (when m (fn [args x] (fn [E] (m args x E))))))
+
+(def gensym-counter (atom -1))
+(defn $gensym
+  ([] ($gensym "g"))
+  ([x] [:id (str x "-" (swap! gensym-counter inc))]))
+(defmacro with-gensyms [gensyms & body]
+  `(let ~(vec (mapcat list gensyms (map $gensym gensyms))) ~@body))
 
 ;; TODO: monadic treatment of environment?
-
-(comment
-(w ([a] (w a (source-info x)))
-            ([a i] (with-source-info a i)))
-          (X* [s] (when s (map X s)))
-          (Xvec [s] (vec (X* s)))
-          (Xvec* [s] (vec (map Xvec s)))
-          (def-arg [[[name type] default]]
-            (when-not (nil? name)
-              (list :argument (X name) (X type) (X default))))
-          (def-xarg [[name type]]
-            (when-not (nil? name)
-              (list :argument (X name) (X type))))
-          (def-args [[positional-args rest-arg more-args kw-arg]]
-            [(vec (map def-arg positional-args))
-             (def-xarg rest-arg)
-             (vec (map def-arg more-args))
-             (def-xarg kw-arg)])
-          (Xarglist [l]
-            (if-let [[args rarg margs kargs] l]
-              [(Xvec args) (X rarg) (Xvec margs) (X kargs)])))
 
 (declare &desugar)
 
 (defn &desugar* [xs] (&map &desugar xs))
 (defn &desugar** [xs] (&map &desugar* xs))
+
+(defn &desugar-args [[args sarg moreargs kwarg]]
+  (&let [args (&desugar* args)
+         sarg (&desugar sarg)
+         moreargs (&desugar* moreargs)
+         kwarg (&desugar kwarg)]
+        [(vec args) sarg (vec moreargs) kwarg]))
 
 (defn constint [n] [:constant [:integer (+ 0N n)]])
 
@@ -85,37 +96,37 @@
             (if-let [[h & as] (and (vector? x) x)]
               (case h
                 (:id) (v :assign x right)
-                (:attribute) ($error "Attribute as a target is impure")
-                (:subscript) ($error "Subscript as a target is impure")
+                (:attribute) ($syntax-error x "Attribute as a target is impure")
+                (:subscript) ($syntax-error x "Subscript as a target is impure")
                 (:tuple :list)
                 (if (not (= kind :assign)) ($error "list or tuple not allowed as target in augassign")
-                    (let [r ($gensym)
-                          nr ($gensym)
-                          si (first (map first (filter #(= (first (second %)) :starred)
-                                                       (map-indexed vector as))))
-                          a (vec as)]
-                       (v :suite
-                          (v :assign r right)
-                          (if si
-                            (let [head (subvec a 0 si)
-                                  nhead (count head)
-                                  starred (second (nth a si))
-                                  tail (subvec a (inc si))
-                                  ntail (count tail)]
+                    (with-gensyms [r nr]
+                      (let [si (first (map first (filter #(= (first (second %)) :starred)
+                                                         (map-indexed vector as))))
+                            a (vec as)]
+                        (v :suite
+                           (v :assign r right)
+                           (if si
+                             (let [head (subvec a 0 si)
+                                   nhead (count head)
+                                   starred (second (nth a si))
+                                   tail (subvec a (inc si))
+                                   ntail (count tail)]
+                               (v :suite
+                                  (v :builtin :check-length-ge r
+                                     (v :constant (v :integer (+ nhead ntail))))
+                                  (v :assign nr (v :builtin :length r))
+                                  (Dhead head r)
+                                  (D starred (v :builtin :subscript r
+                                                (v :builtin :slice
+                                                   (constint nhead)
+                                                   (v :builtin :sub nr (constint ntail)) (constint 1))))
+                                  (Dtail tail r nr ntail)))
                              (v :suite
-                                (v :builtin :check-length-ge r
-                                   (v :constant (v :integer (+ nhead ntail))))
-                                (v :assign nr (v :builtin :length r))
-                                (Dhead head r)
-                                (D starred (v :builtin :subscript r
-                                              (v :builtin :slice
-                                                 (constint nhead)
-                                                 (v :builtin :sub nr (constint ntail)) (constint 1))))
-                                (Dtail tail r nr ntail)))
-                           (v :suite
-                              (v :builtin :check-length-eq r (constint (count as)))
-                              (Dhead as r))))))
-                ($error "Syntax Error: invalid target"))))
+                                (v :builtin :check-length-eq r (constint (count as)))
+                                (Dhead as r)))))))
+                ($syntax-error x "Syntax Error: invalid target"))
+              ($syntax-error "Syntax Error: invalid target")))
           (Dhead [head r]
             (c (vec* :suite
                      (map-indexed (fn [i x] (v :assign x (v :builtin :subscript r (constint i)))) head))))
@@ -126,138 +137,156 @@
                                   tail))))]
     (D x right)))
 
-;; x < y <= z < t
-(defn expand-compare [[left ops args] x]
+(defn expand-compare [left ops args x]
   (letfn [(i [a] (copy-source-info a x))
           (v [& args] (i (vec args)))]
     (if-let [[op & moreops] ops]
       (let [[arg & moreargs] args
-            g (when moreops ($gensym))
-            [right init] (if g [g [(v :assign g arg)]] [arg nil])]
+            [right init] (if moreops (with-gensyms [g] [g [(v :assign g arg)]]) [arg nil])]
         (i `(:suite ~@init ~(v :if (merge-source-info [:builtin op left right] left right)
-                               (expand-compare [right moreops moreargs] x)
+                               (expand-compare right moreops moreargs x)
                                (v :constant :False)))))
       (v :constant :True))))
 
-(defn expand-cond [[clauses else] x]
+(defn expand-cond [clauses else x]
   (if-let [[[test iftrue] & moreclauses] clauses]
-    (copy-source-info [:if test iftrue (expand-cond [moreclauses else] x)] x)
+    (copy-source-info [:if test iftrue (expand-cond moreclauses else x)] x)
     (or else (copy-source-info [:constant :None] x))))
 
+(defn &undecorate [x base]
+  (let [decorators (last x)]
+    (if (seq decorators)
+      (let [[_ deco dargs :as d] (last decorators)
+            simpler (copy-source-info (conj (pop x) (pop decorators)))]
+        (letfn [(v [&args a] (copy-source-info (vec a) d))]
+          (&let [f (&decorator-macro deco)
+                 * (if f (&bind (f dargs simpler) &desugar)
+                       (&desugar
+                        (v :suite simpler
+                           (v :assign name
+                              (v :call (let [deco (unnamify deco)]
+                                         (if dargs (v d :call deco dargs) deco))
+                                 [[name] nil [] nil])))))])))
+      (base))))
+
 (defn &desugar [x]
-  (cond
-   (or (nil? x) (keyword? x)) (&return x)
-   (vector? x)
-   (let [[tag & as] x]
-     (letfn [(i [f] (copy-source-info f x))
-             (v [& s] (i (apply vec* s)))
-             (w [& s] (i (vec s)))]
-     (case tag
-       (:from)
-       (let [[[dots names] imports] x]
-         (NIY {:r "&desugar from"})) ;; TODO: handle import of macros!
-       (:import :id :return :constant) (&return x) ;; :constant is for recursive desugar
-       (:integer :float :string :bytes :imaginary
-        :True :False :None :Ellipsis
-        :zero-uple :empty-list :empty-dict) (&return (w :constant x))
-       (:expression :interactive) (&desugar (first as))
-       (:module :pass) (&desugar (v :suite as))
-       ;; :builtin is for recursively desugared code.
-       ;; :lt :gt :eq :ge :le :ne :in :is :not-in :is_not are transformed into builtin's as well.
-       (:builtin :binop :unaryop) (&let [s (&desugar* (rest as))] (v :builtin (first as) s))
-       (:del) (if (rest as) (&desugar (v :suite (map #(w :del %) as)))
-                  (let [[h & t :as a] as]
-                    (if (= h :id) (&return x) ;; del identifier remains as primitive
-                        (NIY {:r "Can only del names" :a a}))))
-       (:assert :list :set :tuple :slice :subscript :yield :yield-from)
-       (&let [s (&desugar* as)] (v :builtin tag s))
-       (:for) (let [[target generator body] as
-                    g ($gensym)]
-                (&desugar
-                 (v :suite
-                    (w :assign g generator)
-                    (w :while (w :builtin :gen-next? g)
-                       (v :suite
-                          (w :assign (w :tuple g target) (w :builtin :gen-next g))
-                          body)))))
-       (:dict) (&let [s (&desugar** x)] (w (vec* tag (map vec s))))
-       (:except :keyarg) ($error "Not at toplevel: %s" [:x] {:x x})
-       (:global :nonlocal) (if (rest as) (&desugar (v :suite (map #(w tag %) as)))
-                               (&return x))
-       (:attribute) (let [[x [_ s :as n]] as]
-                      (&let [x (&desugar x)]
-                            (w :builtin :attribute x (copy-source-info [:string s] n))))
-       (:raise :while :break :continue :if) (&let [s (&desugar* as)] (v tag s)) ;; if is for recursing
-       (:compare) (&desugar (expand-compare as x))
-       (:cond) (&desugar (expand-cond as))
-
-       (:suite) (NIY) ;; TODO: unwrap singletons, flatten nested suites
-
-       (:augassign)
-       (let [[target iop arg] as
-             op ({:iadd :add :isub :sub
-                  :imul :mul :idiv :div :ifloordiv :floordiv :imod :mod
-                  :iand :and :ior :or :ixor :xor :irshift :rshift :ilshift :lshift
-                  :ipow :pow :imatmul :matmul} iop)]
-         (&desugar (expand-target target (w :builtin op target arg) :augassign x)))
-       (comment
-       :assign
-       (let [[target iop arg] as
-             op ({:iadd :add :isub :sub
-                  :imul :mul :idiv :div :ifloordiv :floordiv :imod :mod
-                  :iand :and :ior :or :ixor :xor :irshift :rshift :ilshift :lshift
-                  :ipow :pow :imatmul :matmul} iop)]
-         (&desugar (expand-target target (w :builtin op target arg) :augassign x)))
-       (let [v (Xvec x)]
-         (w (list :assign (subvec v 0 (dec (count v))) (last v))))
-       (let [[a op b] x] (w (list :augassign (first op) (X a) (X b))))
-
-       (:def)
-       (let [[name args return-type body decorators] x]
-         (w (list :def (X name) (def-args args) (X return-type) (X body) (Xvec decorators))))
-       :decorator
-       (let [[name args] as]
-         (w (list :decorator (Xvec name) (Xarglist args))))
-       :class ;; TODO: arbitrary args to class ?
-       (let [[name superclasses body decorators] as]
-         (w (list :class (X name) (Xvec superclasses) (X body) (Xvec decorators))))
-       :call ;; TODO: call macros?
-            (let [[fun args] x]
-              (w (list :call (X fun) (Xarglist args))))
-       (:list-comp :set-comp :generator)
-       (let [[expr gens]
-       (&desugar
-       (w :builtin
-       (let [[a for] x] (w (list tag (X a) (X for))))
-       (:dict-comp)
-       (let [[[a b] for] x] (w (list tag [(X a) (X b)] (X for))))
-       (:comp-for) (let [[var gen more] (X* x)] (cons (w (list tag var gen)) more))
-       (:comp-if) (let [[test more] (X* x)] (cons (w (list tag test)) more))
-       :try
-       (let [[body [excepts else finally]] x]
-         (w (list :try (X body) (Xvec* excepts) (X else) (X finally))))
-       :with
-       (let [[items body] x]
-         (w (list :with (vec (map (fn [[x y]] [(X x) (X y)]) items)) (X body))))))])))))))
-
-
-(comment
-(defn $generator [expr comps]
-  [:function [[] nil [] nil] nil
-   (reduce (fn [statement comp]
-             (case (first comp)
-               (:comp-for) (let [[_ target gen] comp]
-                             (copy-source-info [:for target gen statement] comp))
-               (:comp-if) (let [[_ test] comp]
-                            (copy-source-info [:if [[target statement]] nil]) comp)))
-           [:yield expr])])
-
-(defn $generator-seq [expr gen]
-  (match [gen]
-    [nil] `(list ~expr)
-    ;;[([:comp-for target gen] :seq) & more] `($comp-for gen (fn))
-    ;;[[([:comp-if test] :seq) & more]]
-    ;;[([:comp-for target gen] :seq)]]
-    )))
+  (letfn [(i [f] (copy-source-info f x))
+          (v [& s] (i (vec s)))
+          (w [& s] (i (apply vec* s)))]
+    (match [x]
+      [nil] &nil
+      [[':from [dots dottedname] imports]] (NIY {:r "&desugar from"})
+      [[':import & dotted-as-names]] (&return x) ;; TODO: process import bindings
+      [[(:or ':id ;; TODO: handle lexical bindings in macro environment
+             ':return ':constant) & _]] (&return x) ;; :constant is for recursive desugar
+      [[(:or ':integer ':float ':string ':bytes ':imaginary
+             ':True ':False ':None ':Ellipsis
+             ':zero-uple ':empty-list ':empty-dict) & _]] (&return (v :constant x))
+      [[(:or ':expression ':interactive) x]] (&desugar x)
+      [[(:or ':module ':pass) & xs]] (&desugar (w :suite xs))
+      ;; :builtin is for recursively desugared code.
+      ;; :lt :gt :eq :ge :le :ne :in :is :not-in :is_not are transformed into builtin's as well.
+      [[(:or ':builtin ':binop ':unaryop) op & args]]
+      (&let [as (&desugar* args)] (w :builtin op as))
+      [[':del _ _ & _]] (&desugar (w :suite (map #(v :del %) (rest x))))
+      [[':del [:id n]]] (&return x) ;; del identifier remains as primitive
+      [[':del _]] (NIY {:r "Can only del names" :x x})
+      [[(:or ':raise ':while ':break ':continue ':if) & args]]
+      (&let [s (&desugar* args)] (w (first x) s))
+      [[(:or ':suite ':assert ':yield ':yield-from
+              ':argument ':except ;; TODO: handle
+              ':list ':dict ':set ':tuple ':slice ':subscript) & args]]
+      (&let [s (&desugar* args)] (w :builtin (first x) s))
+      [[':for target generator body]]
+      (with-gensyms [gen]
+        (&desugar
+         (w :suite
+            (v :assign gen generator)
+            (v :while (v :builtin :gen-next? gen)
+               (w :suite
+                  (v :assign (v :tuple gen target) (v :builtin :gen-next gen))
+                  body)))))
+      [[(:or ':global ':nonlocal) & args]]
+      (if (seq (rest args)) (&desugar (w :suite (map #(v (first x) %) args))) (&return x))
+      [[':attribute x [:id s] :as n]]
+      (&let [x (&desugar x)] (v :builtin :attribute x (copy-source-info [:string s] n)))
+      [[':compare left ops args]] (&desugar (expand-compare left ops args x))
+      [[':cond clauses else]] (&desugar (expand-cond clauses else x))
+      [[':augassign target iop arg]]
+      (&desugar (expand-target target (v :builtin iop target arg) :augassign x))
+      [[':assign targets expr]]
+      (&let [val (&desugar expr)
+             z (match [targets]
+                 [[[':id _]]] (&return (v :assign (first targets) val))
+                 [[_]] (&return (expand-target (first targets) val))
+                 :else (with-gensyms [g]
+                         (&let [y (&desugar
+                                   (w :suite
+                                      (map #(expand-target % g :assign x) (reverse targets))))]
+                               (v :suite (v :assign g val) y))))])
+      [[(:or ':list-comp ':dict-comp ':set-comp ':generator) expr gen]]
+      (&desugar
+       (v :builtin (first x)
+          (v :function [[] nil [] nil] nil
+             (reduce (fn [statement comp]
+                       (copy-source-info
+                        (match [comp]
+                               [[':comp-for target gen]] [:for target gen statement]
+                               [[':comp-if test]] [:if test statement (v :None)]
+                               :else ($syntax-error x)) comp))
+                     (v :yield expr)))))
+      [[':try body excepts else finally]]
+      (&let [body (&desugar body)
+             excepts (&desugar* excepts) ;;TODO: bindings
+             else (&desugar else)
+             finally (&desugar finally)]
+            (v :try body excepts else finally))
+      [[':call fun args]]
+      (&let [f (&call-macro fun)
+             z (if f (&bind (f x) &desugar)
+                   (&let [fun (&desugar fun)
+                          args (&desugar-args args)]
+                         (v :call fun args)))])
+      [[':def name args return-type body decorators]]
+      (&undecorate x
+       #(&let [args (&desugar-args args)
+               return-type (&desugar return-type)
+               body (&desugar body)] ;; TODO: desugar in lexical environment
+              (v :assign name (v :function args return-type (v :suite body (v :None))))))
+      [[':class name args body decorators]]
+      (&undecorate x ;; TODO? recursively add a @method decorator to all function definitions.
+       #(&let [args (&desugar-args args)
+               body (&desugar body)]
+              (v :class name args body)))
+      [[':function args return-type body]]
+      (&let [args (&desugar-args args)
+             return-type (&desugar return-type)
+             body (&desugar body)]
+            (v :function args return-type body))
+      [[':with items body]]
+      (match items
+        [[]] (&desugar body)
+        [[[ctxmgr target] & more]]
+        (let [simpler [v :with more body]]
+          (letfn [(c [&args a] (copy-source-info (vec a) ctxmgr))]
+            (&let [f (&with-macro ctxmgr)
+                   * (if f (&bind (f simpler) &desugar)
+                         (with-gensyms [mgr exception-type exception traceback]
+                           (&desugar
+                            (c :suite
+                               (c :assign mgr ctxmgr)
+                               (c :assign exception-type :None)
+                               (c :assign exception :None)
+                               (c :assign traceback :None)
+                               (let [enter (c :call (c :attribute mgr (c :id "__enter__"))
+                                              [[] nil [] nil])]
+                                 (if target (c :assign target enter) enter))
+                               (c :try simpler []
+                                  (c :suite (c :assign (c :tuple exception-type exception traceback)
+                                               (c :builtin :exc_info)))
+                                  (c :call (c :attribute mgr (c :id "__exit__"))
+                                     [[exception-type exception traceback] nil [] nil])
+                                  (c :del exception-type exception traceback))))))]))))
+      :else ($syntax-error x))))
 
 (defn desugar [program] ((&desugar program) null-macro-environment))

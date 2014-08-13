@@ -1,2 +1,3 @@
-class Foo(Bar):
+@frills
+def ff():
   pass

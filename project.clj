@@ -25,7 +25,20 @@
                  ;;[org.van-clj/zetta-parser "0.0.4"]
                  ;;[squarepeg "0.6.1"]
                  ]
-  :repositories { "sonatype" {:url "https://oss.sonatype.org/content/repositories/snapshots/"}}
+  :repositories {"sonatype" {:url "https://oss.sonatype.org/content/repositories/snapshots/"}}
   :resource-paths ["resources/prod"]
   :profiles {:uberjar {:aot :all}
-             :dev {:resource-paths ["resources/test"]}})
+             :dev {:resource-paths ["resources/test"]
+                   :dependencies [[me.raynes/conch "0.8.0"]
+                                  [cider/cider-nrepl "0.7.0"]]
+                   :repl-options {:nrepl-middleware
+                                  [cider.nrepl.middleware.classpath/wrap-classpath
+                                   ;;cider.nrepl.middleware.complete/wrap-complete ;; messes up nrepl-mode
+                                   cider.nrepl.middleware.info/wrap-info
+                                   cider.nrepl.middleware.inspect/wrap-inspect
+                                   cider.nrepl.middleware.macroexpand/wrap-macroexpand
+                                   cider.nrepl.middleware.stacktrace/wrap-stacktrace
+                                   cider.nrepl.middleware.test/wrap-test
+                                   cider.nrepl.middleware.trace/wrap-trace
+                                   ;; cider.nrepl.middleware.undef/wrap-undef ;; fails to load
+                                   ]}}})

@@ -5,12 +5,6 @@
   (:use [clojure.core.match :only [match]]
         [skylark.utilities]))
 
-(defn $syntax-error
-  ([x fmt args map] ($error "Syntax Error" 'syntax-error fmt args
-                            (merge map {:expr x :source-info (meta x)})))
-  ([x fmt] ($syntax-error x fmt [:expr] {}))
-  ([x] ($syntax-error x nil nil {})))
-
 (def $initial-environment {})
 
 (defn register-initial-binding [s v]
@@ -132,32 +126,10 @@
 
 (defmacro $global [x] `(var-get (var ~x)))
 
-
-(defn expr-macro [name]
-  (NFN))
-
-(defn block-macro [name]
-  (NFN))
-
-(defn decorator-macro [name]
-  (NFN))
-
-
-;;; Decorators
-
-(defn decorate [definition decorator]
-  ;;; implement decorators...
-  (let [[name args] (if (symbol? decorator) [decorator nil] decorator)
-        macro (decorator-macro name)]
-    (if macro
-      (macro args definition)
-      (let [[_ defname] definition]
-        `(do ~definition
-             (set! ~defname (~decorator ~defname)))))))
-
-(defmacro decorated [decorators definition]
-  (reduce decorate definition decorators))
-
+(def iop-op {:iadd :add :isub :sub
+             :imul :mul :idiv :div :ifloordiv :floordiv :imod :mod
+             :iand :and :ior :or :ixor :xor :irshift :rshift :ilshift :lshift
+             :ipow :pow :imatmul :matmul})
 
 (defn make-generator [s] {:seq s})
 

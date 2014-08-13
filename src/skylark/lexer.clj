@@ -201,9 +201,7 @@
     lq (&optional (&do (&char= q) (&char= q)))]
    (if lq [true q] [false q])))
 
-(defn &string-end-quote [long? q]
-  (let [l (&char= q)]
-    (if long? (&do l l l) l)))
+(defn &string-end-quote [long? q] (let [l (&char= q)] (if long? (&do l l l) l)))
 
 (def &string-literal
   (&let
@@ -222,42 +220,24 @@
     _ (&string-end-quote long? q)]
    [(if b :bytes :string) s]))
 
-(defn &intpart [prefix]
-  (&conj+ (&char-if decimal-digit) prefix))
-
-(defn &fraction [prefix]
-  (&do (&char= \.) (&intpart (conj prefix \.))))
-
+(defn &intpart [prefix] (&conj+ (&char-if decimal-digit) prefix))
+(defn &fraction [prefix] (&do (&char= \.) (&intpart (conj prefix \.))))
 (defn &exponent [prefix]
   (&let [c (&char-if #{\e \E})
          s (&optional (&char-if #{\+ \-}))
-         e (&intpart (list* s c prefix))]))
-
-(def &point-float
-  (&or (&bind (&optional (&intpart ())) &fraction)
-       (&let [i (&intpart ()) c (&char= \.)] (conj i c))))
-
-(def &exponent-float
-  (&bind (&or &point-float (&intpart ())) &exponent))
-
+         * (&intpart (list* s c prefix))]))
+(def &point-float (&or (&bind (&optional (&intpart ())) &fraction)
+                       (&lift conj (&intpart ()) (&char= \.))))
+(def &exponent-float (&bind (&or &point-float (&intpart ())) &exponent))
 (def &float-literal
   (&let [x (&or &exponent-float &point-float)]
         [:float (Double/parseDouble (stringify x))]))
 
-(defn integerize [x]
-  (+ 0N (clojure.core/read-string (stringify x))))
-
-(def &decimal-integer
-  (&chars (&char-if decimal-digit) '("10r") integerize))
-
-(def &octal-integer
-  (&chars (&char-if octal-digit) '("8r") integerize))
-
-(def &hexadecimal-integer
-  (&chars (&char-if hexadecimal-digit) '("16r") integerize))
-
-(def &binary-integer
-  (&chars (&char-if #{\0 \1}) '("2r") integerize))
+(defn integerize [x] (+ 0N (clojure.core/read-string (stringify x))))
+(def &decimal-integer (&chars (&char-if decimal-digit) '("10r") integerize))
+(def &octal-integer (&chars (&char-if octal-digit) '("8r") integerize))
+(def &hexadecimal-integer (&chars (&char-if hexadecimal-digit) '("16r") integerize))
+(def &binary-integer (&chars (&char-if #{\0 \1}) '("2r") integerize))
 
 (def &integer-literal
   (&let [c &peek-char
@@ -271,7 +251,6 @@
             (decimal-digit c) &decimal-integer
             :else &fail)]
     [:integer i]))
-
 (def &numeric-literal
   (&let [n (&or &float-literal &integer-literal)
          j (&optional (&char-if #{\j \J}))]
@@ -301,37 +280,33 @@
   (map (fn [[s x]] [s (sym x)]) (sort-by #(count (first %)) > (concat delimiters operators))))
 
 (def &delimiter-or-operator
-  (&let [x (&or* (map (fn [[s x]] (&do (&string= s) (&return x))) delimiters-and-operators))]
-        [x]))
+  (&vector (&or* (map (fn [[s x]] (&do (&string= s) (&return x))) delimiters-and-operators))))
 
 (def paren-closer {\( \) \[ \] \{ \}})
 
 (def &paren
-  (&or
-   (&bind (&char-if #{\( \[ \{})
-          #(fn [σ]
-             [[%] (assoc σ :delim-stack (conj (:delim-stack σ) (paren-closer %)))]))
-   (&bind (&char-if #{\) \] \}})
-          #(fn [{ds :delim-stack :as σ}]
-             [[%]
-              (assoc σ :delim-stack
-                     (if (= % (first ds)) (rest ds) ((&error "Unmatched delimiter") σ)))]))))
+  (&or (&bind (&char-if #{\( \[ \{})
+              #(fn [σ]
+                 [[%] (assoc σ :delim-stack (conj (:delim-stack σ) (paren-closer %)))]))
+       (&bind (&char-if #{\) \] \}})
+              #(fn [{[d & ds] :delim-stack :as σ}]
+                 [[%]
+                  (assoc σ :delim-stack
+                         (if (= % d) ds ((&error "Unmatched delimiter") σ)))]))))
 
 (def &token ;; accepts a token and emits it.
-  (&bind (&letx [x (&or &string-literal &numeric-literal
-                        &paren &ident-or-keyword &delimiter-or-operator)] x)
-         &emit))
+  (&bind (&info (&or &string-literal &numeric-literal
+                     &paren &ident-or-keyword &delimiter-or-operator)) &emit))
 
 (def &logical-line
-  (&let
-    [_ &neof
-     column &leading-whitespace
-     _ (&or &comment-eol ;; skip blank lines
-            (&do
-             (&indent column)
-             (&repeat (&do &token &whitespace))
-             &comment-eol
-             (&bind &prev-info (fn [info] (&emit (with-source-info [:newline] info))))))]
+  (&let [_ &neof
+         column &leading-whitespace
+         _ (&or &comment-eol ;; skip blank lines
+                (&do
+                 (&indent column)
+                 (&repeat (&do &token &whitespace))
+                 &comment-eol
+                 (&bind &prev-info #(&emit (with-source-info [:newline] %)))))]
     nil))
 
 (defn &finish [{out :out is :indent-stack :as σ}]
