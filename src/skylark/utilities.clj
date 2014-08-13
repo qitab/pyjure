@@ -121,8 +121,8 @@ The macro expansion has relatively low overhead in space or time."
 
 
 (defn $error
-  ([msg tag fmt args m] (throw (ex-info "$error" (merge m {::tag tag ::format fmt ::args args}))))
-  ([msg tag m] ($error msg tag nil nil m)))
+  ([tag fmt args m] (throw (ex-info "$error" (merge m {::tag tag ::format fmt ::args args}))))
+  ([tag m] ($error tag nil nil m)))
 
 (defn $error?
   ([x] (second (find (ex-data x) ::tag)))
@@ -134,10 +134,10 @@ The macro expansion has relatively low overhead in space or time."
          (when fmt (str ": " (apply format fmt (map m args)))))))
 
 (defn $syntax-error
-  ([x fmt args map] ($error "Syntax Error" 'syntax-error fmt args
-                            (merge map {:expr x :source-info (meta x)})))
+  ([x fmt args map] ($error 'syntax-error fmt args
+                            (merge map {:expr x :source-info (:source-info x)})))
   ([x fmt] ($syntax-error x fmt [:expr] {}))
   ([x] ($syntax-error x nil nil {})))
 
-(defn NIY [& args] (apply $error "Not Implemented Yet" args))
+(defn NIY [& args] (apply $error :not-implemented-yet args))
 (defn NFN [& args] nil) ;; nil for now

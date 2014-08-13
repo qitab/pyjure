@@ -33,8 +33,7 @@
   ([m1 m2 & ms] (reduce &bind (list* m1 m2 ms))))
 
 (defn fail&
-  ([σ fmt args map]
-     ($error "Syntax Error" (type σ) fmt args (merge map {:σ σ :source-info (prev-info σ)})))
+  ([σ fmt args map] ($error (type σ) fmt args (merge map {:σ σ :source-info (prev-info σ)})))
   ([σ fmt args] (fail& σ fmt args {}))
   ([σ fmt] (fail& σ fmt nil {}))
   ([σ] (fail& σ nil nil {})))
