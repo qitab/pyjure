@@ -93,10 +93,9 @@ for i in range(10,100):
   print(i)
 else: print("nope")
 
-*x, *y
 
 class Foo:
-  a = 2
+  a, b, *c, d, e, f = 1, 2, 3, 4, 5, 6, 7
   class Inner(object):
     b = 3
   def foo(self):

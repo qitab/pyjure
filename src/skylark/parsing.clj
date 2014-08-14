@@ -75,6 +75,7 @@
         bindings (into [] (mapcat list vars ms))]
   `(&let ~bindings (~fun ~@vars))))
 (defmacro &vector [& ms] `(&lift vector ~@ms))
+(defmacro &vec [& ms] `(&lift vec ~@ms))
 
 ;;; Monadic combinators
 

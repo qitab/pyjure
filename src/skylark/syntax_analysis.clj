@@ -2,6 +2,7 @@
   (:use [clojure.core.match :only [match]]
         ;;[skylark.parsing] ;; ACTUALLY, State Monad, not just parsing!
         [skylark.utilities]
+        [skylark.parsing]
         [skylark.runtime]))
 
 ;; Maybe macro-expand already so we get fewer different constructs to analyze?
@@ -21,6 +22,19 @@
 ;; 1- which identifiers it either:
 ;;  (1) marks as global, (2) marks as nonlocal, (3) introduces.
 ;; 2- whether it yields
+
+(comment
+(defn expand-suite [x]
+  (letfn [(flatten [x acc]
+            (if (and (vector? x) (= (first x) :suite))
+              (reduce #(flatten %2 %) acc x)
+              (conj acc x)))]
+    (let [s (expand (rest x))]
+      (if (and (seq s) (nil? (rest s))) (first s)
+          (copy-source-info (vec* :suite s) x)))))
+)
+
+;; Also: check that there is no :starred left.
 
 (defn $syntax-analysis-error [fmt args x]
   ($error "scope analysis error" 'syntax-analysis-error

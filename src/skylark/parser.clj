@@ -344,7 +344,7 @@
 (def &with-item (&vector &test (&optional (&do (&type :as) &expr))))
 
 (def &with-statement
-  (&prefixed :with (&non-empty-separated-list &with-item) &colon-suite))
+  (&prefixed :with (&vec (&non-empty-separated-list &with-item)) &colon-suite))
 
 (def &decorator
   (&do (&type :matmul) (&do1 (&tag :decorator &dotted-name (&optional (&paren &arglist))) &newline)))

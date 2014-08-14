@@ -15,5 +15,5 @@
 (deftest desugar-test
   ;; (testing "desugar smoketest")
   (testing "Every python desugaring rule"
-    (is (= (first (d all-python)) :suite))))
-
+    (match (d all-python) [[':suite & _] env]
+      (is (= env null-macro-environment)))))

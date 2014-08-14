@@ -135,3 +135,10 @@ return a
 
 * Yield can be implemented through a delimcc monad:
    http://okmij.org/ftp/continuations/implementations.html
+
+* Is this a bug in core.match?
+   (match [[1 2 3 4]] [[(or 0 1 2) :as x & more]] [x more])
+   ==> CompilerException java.lang.RuntimeException: Unable to resolve
+   symbol: x in this context, compiling:(null:1:1)
+   workaround:
+   (match [[1 2 3 4]] [[x :guard #{0 1 2} & more]] [x more])
