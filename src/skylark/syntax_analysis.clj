@@ -1,59 +1,31 @@
 (ns skylark.syntax-analysis
   (:use [clojure.core.match :only [match]]
-        ;;[skylark.parsing] ;; ACTUALLY, State Monad, not just parsing!
         [skylark.utilities]
         [skylark.parsing]
         [skylark.runtime]))
 
-;; Maybe macro-expand already so we get fewer different constructs to analyze?
-
-
-;; When it's complete, find a proper name for this phase.
-;; Maybe syntactic-analysis?
-;; It's not just an analysis of what variables are in what scope,
-;; but detecting the effects syntactically present in the code
-;; (though further analysis might optimize some of them away).
-;; e.g. if an identifier is declared, if a yield is present, etc.,
-;; even if ultimately not used, it affects the semantics
-;; of the code, by shadowing a variable, marking the function as
-;; a generator, or merely introducing syntax errors.
-
-;; Annotate each scoping level with
-;; 1- which identifiers it either:
-;;  (1) marks as global, (2) marks as nonlocal, (3) introduces.
-;; 2- whether it yields
-
-(comment
-(defn expand-suite [x]
-  (letfn [(flatten [x acc]
-            (if (and (vector? x) (= (first x) :suite))
-              (reduce #(flatten %2 %) acc x)
-              (conj acc x)))]
-    (let [s (expand (rest x))]
-      (if (and (seq s) (nil? (rest s))) (first s)
-          (copy-source-info (vec* :suite s) x)))))
-)
-
-;; Also: check that there is no :starred left.
-
-(defn $syntax-analysis-error [fmt args x]
-  ($error "scope analysis error" 'syntax-analysis-error
-          fmt args {:expr x :source-info (:source-info (meta x))}))
-
-;; TODO: maybe store analysis results in meta data, not in another field?
-;; but then macros must be careful to NOT blindly copy that meta-data,
+;; This pass will
+;; * identify for each scope (function or class)
+;;  and each variables which is its scoping status:
+;;  one of param, local, nonlocal, global.
+;;  Issue an error if a variable has conflicting uses.
+;;  TODO: if we allow for lexical macros, the previous pass needs have noted them.
+;; * detect which functions are generators
+;;  (a yield statement taints the function even if it's going to be optimized away later)
+;; * TODO detect other syntactically present side-effects in the function
+;;  (e.g. skylark rule definition, incremental class definition, etc.)
+;;
+;; Information is stored in metadata for the function or class node.
+;; further passes must be careful to NOT blindly copy that meta-data,
 ;; but only the meta data they know they preserve... ahem.
-
-;; TODO: how do we interleave that with macro expansion?
-;; By assuming no undeclared nonlocal or global or local binding,
-;; and erroring out if we are contradicted on that.
+;; TODO: maybe store analysis in another field?
 
 ;; TODO: adapt what environments we store to what we actually need later
 ;; TODO: maybe store for each expression the state of the environment before it?
 ;;   can be slightly tricky in a branch inside a loop:
 ;;   which bindings exactly are visible from there?
 
-;; The analysis state tracks a local and global environment, for macro-expansion,
+;; The analysis state tracks a local and global environment
 ;; and a record of the effects that (may) happen in the current scope.
 (defrecord AnalysisState [locals globals effects]) ;; environment is for macro-expansion
 
@@ -245,3 +217,5 @@
         (or (literal? x) (#{:False :True :None :zero-uple :empty-list :empty-dict} x) (nil? x))
         [x E]
         :else ($syntax-error x)))))
+
+(defn analyze-syntax [x] ((A x) null-syntax-analysis-state))

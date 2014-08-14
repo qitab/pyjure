@@ -187,7 +187,9 @@
       (&let [as (&desugar* args)] (w :builtin op as))
       [[':del _ _ & _]] (&desugar (w :suite (map #(v :del %) (rest x))))
       [[':del [:id n]]] (&return (v :unbind n)) ;; del identifier remains as primitive
-      [[':del _]] (do (NFN) (&return x)) ;; (NIY {:r "Can only del names" :x x})
+      [[':del [':subscript obj idx]]]
+      (&return (v :builtin :delitem obj idx))
+      [[':del _]] ($syntax-error x "Not a valid thing to del-ete %s")
       [[tag :guard #{:bind :argument :except :raise ;; TODO: handle
                      :suite :while :break :continue :if :yield :yield-from :all} & args]]
       (&let [s (&desugar* args)] (w tag s))

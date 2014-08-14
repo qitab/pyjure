@@ -142,3 +142,13 @@ return a
    symbol: x in this context, compiling:(null:1:1)
    workaround:
    (match [[1 2 3 4]] [[x :guard #{0 1 2} & more]] [x more])
+
+* macroexpand class in terms of the following constructs:
+   environment -- create a dict capturing all currently bound variables
+   @method -- decorator around method functions that binds next_method, etc.
+
+* express generators in terms of this construct:
+   trampolines that capture those variables that are still needed.
+   that's effectively a slightly different code generator,
+   one that enables delimited continuations, but requires
+   the caller to be a trampoline.

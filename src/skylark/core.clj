@@ -10,6 +10,7 @@
             [skylark.parser :as parser]
             [skylark.desugar :as desugar]
             [skylark.syntax-analysis :as syntax-analysis]
+            [skylark.cleanup :as cleanup]
             [skylark.clojurifier :as clojurifier]))
 
 ;; TODO: this file should just combine together all the passes.
@@ -30,16 +31,17 @@
    ;; → AST: nested ^{:source-info Info} [type:keyword & data:*]
    :parse parser/parse
 
-   ;; → AST1: smaller, desugared language
+   ;; → AST1: smaller, desugared language, with macros expanded.
    :desugar desugar/desugar
 
-   ;; TODO: insert a macro-expansion phase HERE,
-   ;; then refactor this and subsequent phases into a function eval that
-   ;; fully evaluates each toplevel form, to leave an opportunity for macros
-   ;; to be defined before they are evaluated.
-
-   ;; → same, but :def and :class entries annotated with sets of bindings
+   ;; → AST1bis: annotating :function entries with scoping and effect information
    :analyze-syntax syntax-analysis/A
+
+   ;; → AST2: cleanup, with bindings resolved, suites merged, generator functions distinguished,
+   ;; some invalid forms filtered, etc. Insert vars for later type analysis.
+   :cleanup cleanup/cleanup
+
+   ;; → AST3: type analysis via 0CFA (?)
 
    ;; → converting to clojure code, executable with skylark.runtime
    :clojurify clojurifier/C
