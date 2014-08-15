@@ -143,11 +143,10 @@
       (v :constant :True))))
 
 (defn expand-cond [clauses else x]
-  (copy-source-info
-   (if-let [[[test iftrue] & moreclauses] clauses]
-     [:if test iftrue (expand-cond moreclauses else x)]
-     (or else [:constant :None]))
-   x))
+  (letfn [(v [& a] (copy-source-info (vec a) x))]
+    (if-let [[[test iftrue] & moreclauses] clauses]
+      (v :if (v :builtin :truthy test) iftrue (expand-cond moreclauses else x))
+      (or else (v :constant :None)))))
 
 (defn expand-decorator [x base]
   (let [decorators (last x)
@@ -195,6 +194,9 @@
       (&let [s (&desugar* args)] (w tag s))
       [[tag :guard #{:assert :list :dict :set :tuple :slice :subscript} & args]]
       (&let [s (&desugar* args)] (w :builtin tag s))
+      [[':if-expr test body else]]
+      (&let [[test body else] (&desugar* [test body (or else (v :None))])]
+            (v :if (v :builtin :truthy test) body else))
       [[':for target generator body else]]
       (with-gensyms [gen]
         (&desugar
@@ -233,7 +235,7 @@
                        (copy-source-info
                         (match [comp]
                                [[':comp-for target gen]] [:for target gen statement]
-                               [[':comp-if test]] [:if test statement (v :None)]
+                               [[':comp-if test]] [:if-expr test statement nil]
                                :else ($syntax-error x "Not a valid comprehension %s")) comp))
                      (v :yield expr)))))
       [[':try body excepts else finally]]

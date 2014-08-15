@@ -5,6 +5,9 @@
   (:use [clojure.core.match :only [match]]
         [skylark.utilities]))
 
+;; https://docs.python.org/3/library/operator.html
+;; https://docs.python.org/3/reference/datamodel.html#customization
+
 (def $initial-environment {})
 
 (defn register-initial-binding [s v]
@@ -22,8 +25,12 @@
 (defn runtime-symbol [x]
   (symbol 'skylark.runtime (str \$ (name x))))
 
+(def $None :None)
+(def $NoneType ;; python singleton None
+  {:element? #(= % $None)})
+
 (defn builtin? [x]
-  (or (nil? x) (list? x)
+  (or (= x $None) (list? x)
       (boolean
        (#{java.lang.Boolean java.lang.Long java.math.BigDecimal java.lang.String
           clojure.lang.PersistentVector clojure.lang.PersistentHashSet clojure.lang.PersistentArrayMap}
@@ -33,7 +40,7 @@
 
 (defn easy-falsity? [x]
   ;; NB: [] catches (), but empty byte-array isn't caught.
-  (or (not x) (boolean (#{[] {} #{} 0 0M 0.0 ""} x))))
+  (or (not x) (boolean (#{[] {} #{} 0 0M 0.0 "" $None} x))))
 (def $False false)
 (def $easy-falsity ;; python easy falsity
   {:element? easy-falsity?})
@@ -51,10 +58,6 @@
 (def $empty-tuple [])
 (def $tuple ;; python tuple
   {:element? vector?})
-
-(def $None nil)
-(def $NoneType ;; python singleton None
-  {:element? #(= % nil)})
 
 (def $Boolean java.lang.Boolean)
 (def $dict clojure.lang.PersistentArrayMap)

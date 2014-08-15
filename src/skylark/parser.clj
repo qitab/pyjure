@@ -231,7 +231,7 @@
 (def &lambdef-nocond (&lambdef0 &test-nocond))
 (def &test-nocond (&or &or-test &lambdef-nocond))
 (def &test (&or (&mod-expr &or-test (&vector (&do (&type :if) &or-test) (&do (&type :else) &test))
-                           (fn [t [x f]] [:if x t f]))
+                           (fn [t [x f]] [:if-expr x t f]))
                 &lambdef))
 
 (def &exprlist (&tuple-or-singleton (&or &expr &star-expr)))
