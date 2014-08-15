@@ -153,3 +153,23 @@ return a
    one that enables delimited continuations, but requires
    the caller to be a trampoline.
 
+*
+   ;; nonlocals globals
+
+;; A (local) Environment maps identifiers to values, and has an optional parent Environment
+;; We only need it for macros. Actually, if we stick to global macros that can't be shadowed,
+;; we don't need it at this stage.
+(defrecord Environment [vars parent])
+
+;; effects are things that may happen within a scope.
+;; at every point, we compute the effects before and after that point in the current scope;
+;; effects are thus a monoid that can be composed forward and backward.
+(defrecord Effects [vars yield?])
+(def null-effects (->Effects #{} false))
+
+;; TODO: adapt what environments we store to what we actually need later
+;; TODO: maybe store for each expression the state of the environment before it?
+;;   can be slightly tricky in a branch inside a loop:
+;;   which bindings exactly are visible from there?
+;;   Probably a latter pass.
+

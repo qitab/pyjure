@@ -44,6 +44,4 @@
                      (cond (empty? r) (v :None)
                            (empty? (rest r)) (first r)
                            :else (w :suite (reverse r))))
-          ;; any remaining starred expression is a syntax error
-          (:starred) ($syntax-error x "starred expressions are only allowed as targets to assignment %s")
           ($syntax-error x "unexpected expression %s during cleanup pass"))))))

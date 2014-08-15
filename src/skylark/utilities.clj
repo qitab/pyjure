@@ -139,5 +139,10 @@ The macro expansion has relatively low overhead in space or time."
   ([x fmt] ($syntax-error x fmt [:expr] {}))
   ([x] ($syntax-error x nil nil {})))
 
+(defn $warning [tag fmt & args]
+  ;; ignore tag for now, and always print
+  ;; TODO: pretty print source location if available
+  (print "WARNING: ") (println (apply format fmt args)))
+
 (defn NIY [& args] (apply $error :not-implemented-yet args))
 (defn NFN [& args] nil) ;; nil for now

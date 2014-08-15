@@ -191,3 +191,25 @@ def f():
 print(41)
 f()
 print(42)
+
+# left to right evaluation including function first.
+def foo(): (yield (((yield 0) or (lambda x: x)) ((yield 1) or (yield 2) or 3)))
+assert [i for i in foo()] == [0, 1, 2, 3]
+
+## Not on python3
+#import sys, StringIO
+#class Capturing(list):
+#    def __enter__(self):
+#        self._stdout = sys.stdout
+#        sys.stdout = self._stringio = StringIO.StringIO()
+#        return self
+#    def __exit__(self, *args):
+#        self.extend(self._stringio.getvalue().splitlines())
+#        sys.stdout = self._stdout
+
+#def p(x): print(x)
+#with Capturing() as output:
+def pp(x: p(1) = p(2)) -> p(3): p(x)
+p(0) ; pp(4)
+assert output == ["2", "1", "3", "0", "4"]
+

@@ -53,10 +53,7 @@
 
 ;;(clojure.algo.monads/defmonad parsing-m [m-result &return m-bind &bind m-zero &fail m-plus &or]))
 
-(defmacro &do
-  ([] `(&return nil))
-  ([m] m)
-  ([m & ms] `(&bind ~m (fn [~'_] (&do ~@ms)))))
+(defn &do ([] &nil) ([m] m) ([m & ms] (reduce #(&bind % (constantly %2)) m ms)))
 (defn find-if [pred seq] ;; NB: doesn't distinguish between finding nil and not finding
   (if (empty? seq) nil (let [x (first seq)] (if (pred x) x (recur pred (rest seq))))))
 (defmacro &let
@@ -107,6 +104,11 @@
 (defn &tag [tag & ms] (apply &into [tag] ms))
 (defn &tag* [tag & ms] (apply &into* [tag] ms))
 
+(defn &args [f] ;; monadically handling our representation for Python arguments.
+  (fn [[args star-arg more-args kw-arg]]
+    (&vector (&vec (map f args)) (f star-arg) (&vec (map f more-args)) (f kw-arg))))
+
+
 ;;; Source information processing
 
 (defn &prev-info [σ] [(prev-info σ) σ])
@@ -138,3 +140,10 @@
   `(do ~@(map #(do `(do (declare ~%) (def ~% #'~%))) names)))
 ;; Alternatively, you can explicitly pass #'&other-non-terminal to your regular combinators
 ;; Maybe you should do THAT anyway, for the sake of extensibility or redefinability.
+
+;; Manipulating the environment
+(defn &assoc-in [keys value] (fn [E] [nil (assoc-in E keys value)]))
+(defn &update-in [keys fun & args] (fn [E] [nil (apply update-in E keys fun args)]))
+(defn &get-in
+  ([keys] (fn [E] [(get-in E keys) E]))
+  ([keys not-found] (fn [E] [(get-in E keys not-found) E])))

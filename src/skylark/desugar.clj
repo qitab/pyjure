@@ -71,14 +71,7 @@
 (declare &desugar)
 
 (defn &desugar* [xs] (&map &desugar xs))
-(defn &desugar** [xs] (&map &desugar* xs))
-
-(defn &desugar-args [[args sarg moreargs kwarg]]
-  (&let [args (&desugar* args)
-         sarg (&desugar sarg)
-         moreargs (&desugar* moreargs)
-         kwarg (&desugar kwarg)]
-        [(vec args) sarg (vec moreargs) kwarg]))
+(def &desugar-args (&args desugar))
 
 (defn constint [n] [:constant [:integer (+ 0N n)]])
 

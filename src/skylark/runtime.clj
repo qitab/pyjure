@@ -27,7 +27,7 @@
 
 (def $None :None)
 (def $NoneType ;; python singleton None
-  {:element? #(= % $None)})
+  {:isinstance? #(= % $None)})
 
 (defn builtin? [x]
   (or (= x $None) (list? x)
@@ -36,28 +36,28 @@
           clojure.lang.PersistentVector clojure.lang.PersistentHashSet clojure.lang.PersistentArrayMap}
         (type x)))))
 (def $builtin ;; python builtin types
-  {:element? builtin?})
+  {:isinstance? builtin?})
 
 (defn easy-falsity? [x]
   ;; NB: [] catches (), but empty byte-array isn't caught.
   (or (not x) (boolean (#{[] {} #{} 0 0M 0.0 "" $None} x))))
 (def $False false)
 (def $easy-falsity ;; python easy falsity
-  {:element? easy-falsity?})
+  {:isinstance? easy-falsity?})
 
 (defn easy-truth? [x]
   (or (= x true) (and (not (easy-falsity? x)) (builtin? x))))
 (def $True true)
 (def $easy-truth ;; python easy truth
-  {:element? easy-truth?})
+  {:isinstance? easy-truth?})
 
 (def $empty-list [])
 (def $list ;; python list
-  {:element? list?})
+  {:isinstance? list?})
 
 (def $empty-tuple [])
 (def $tuple ;; python tuple
-  {:element? vector?})
+  {:isinstance? vector?})
 
 (def $Boolean java.lang.Boolean)
 (def $dict clojure.lang.PersistentArrayMap)
@@ -68,7 +68,7 @@
 (defn type? [type x]
   (cond
     (instance? java.lang.Class type) (instance? type x)
-    (map? type) ((type :element?) x)
+    (map? type) ((type :isinstance?) x)
     :else (NIY)))
 
 (defn type-matcher [formals types]
@@ -98,21 +98,6 @@
   [$easy-falsity] false
   [$easy-truth] true
   :else (subtle-truth? x))
-
-(defmacro $if
-  ([] `$None)
-  ([else] else)
-  ([test if-true & more] `(if ($truth ~test) ~if-true ($if ~@more))))
-
-(defmacro $or
-  ([] `$False) ;; unused by Python itself
-  ([x] x)
-  ([x & xs] `(let [x# ~x] ($if x# x# ($or ~@xs)))))
-
-(defmacro $and
-  ([] `$True) ;; unused by Python itself
-  ([x] x)
-  ([x & xs] `(let [x# ~x] ($if x# ($and ~@xs) x#))))
 
 (define-operation $add [x y]
   ([java.math.BigDecimal java.math.BigDecimal] (+ x y)
