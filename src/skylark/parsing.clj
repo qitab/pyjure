@@ -67,20 +67,20 @@
          `(&bind ~parser (fn [~binding] (&let ~more ~result)))))))
 (defmacro &do1 [m & ms] `(&let [~'x# ~m ~'_ (&do ~@ms)]))
 
-(defmacro &lift [fun & ms]
+(defmacro &call [fun & ms] ;; often call &lift
   (let [vars (map #(do % (gensym)) ms)
         bindings (into [] (mapcat list vars ms))]
   `(&let ~bindings (~fun ~@vars))))
-(defmacro &vector [& ms] `(&lift vector ~@ms))
-(defmacro &vec [& ms] `(&lift vec ~@ms))
+(defmacro &vector [& ms] `(&call vector ~@ms))
+(defmacro &vec [& ms] `(&call vec ~@ms))
 
 ;;; Monadic combinators
 
-(defn &lift-f
+(defn &call-f
   ([fun] (&return (fun)))
   ([fun m] (&bind m (fn [x] (&return (fun x)))))
-  ([fun m & ms] (&bind m (fn [x] (apply &lift-f (partial fun x) ms)))))
-(defn &vector-f [& ms] (apply &lift-f vector ms))
+  ([fun m & ms] (&bind m (fn [x] (apply &call-f (partial fun x) ms)))))
+(defn &vector-f [& ms] (apply &call-f vector ms))
 
 (defn &not [l] ;; lookahead that l does not appear here
   (fn [σ] (if (try& l σ) (&fail σ) [nil σ])))
@@ -96,7 +96,7 @@
 (defn &non-empty-list [m] (&bind m (fn [a] (&list m (list a)))))
 (defn &repeat [m] (&fold m (constantly nil) nil))
 
-(defn &seq [s] (if-let [[m & r] (seq s)] (&lift cons m (&seq r)) &nil))
+(defn &seq [s] (if-let [[m & r] (seq s)] (&call cons m (&seq r)) &nil))
 (defn &map [f s] (&seq (map f s)))
 
 (defn &into [dest & ms] (&let [s (&seq ms)] (into dest s)))
@@ -105,27 +105,44 @@
 (defn &tag* [tag & ms] (apply &into* [tag] ms))
 
 (defn &args [f] ;; monadically handling our representation for Python arguments.
-  (fn [[args star-arg more-args kw-arg]]
-    (&vector (&vec (map f args)) (f star-arg) (&vec (map f more-args)) (f kw-arg))))
+  (fn [x]
+    (let [[args star-arg more-args kw-arg] x]
+    (&vector (&vec (&map f args)) (f star-arg) (&vec (&map f more-args)) (f kw-arg)))))
 
 
 ;;; Source information processing
 
-(defn &prev-info [σ] [(prev-info σ) σ])
-(defn &next-info [σ] [(next-info σ) σ])
+(defn &prev-info [σ]
+  ;;{:post [(or (info? (first %)) (DBG :bad-prev-info σ %))]}
+  [(prev-info σ) σ])
+(defn &next-info [σ]
+  ;;{:post [(or (info? (first %)) (DBG :bad-next-info σ %))]}
+  [(next-info σ) σ])
 
-(defn source-info [x] (:source-info (meta x)))
+(defn info? [x]
+  (or (nil? x)
+      (and (vector? x) (= 3 (count x))
+           (let [[file start end] x]
+             (and (or (nil? file) (string? file))
+                  (every? (fn [v] (and (vector? v) (= 2 (count v)) (every? integer? v)))
+                          [start end]))))))
+
+(defn source-info [x]
+  ;; {:post [(or (info? %) (DBG :bsi x %))]}
+  (:source-info (meta x)))
 (defn with-source-info [x i]
   (and x (let [m (meta x)] (if (:source-info m) x (with-meta x (merge m {:source-info i}))))))
 (defn copy-source-info [x y] (with-source-info x (source-info y)))
 
-(defn merge-info [[file start-pos _ :as i1] [filetoo _ end-pos :as i2]]
-  {:pre [(or (nil? i1) (nil? i2) (= file filetoo))]}
-  (cond (nil? i1) i2
-        (nil? i2) i1
-        :else [file start-pos end-pos]))
+(defn merge-info [x y]
+  ;;{:pre [(info? x) (info? y) (or (nil? x) (nil? y) (= (first x) (first y)))]
+  ;; :post [(info? %)]}
+  (cond (nil? x) y
+        (nil? y) x
+        :else (let [[file start-pos _] x [_ _ end-pos] y] [file start-pos end-pos])))
 
-(defn merge-source-info [a x y] (with-source-info a (merge-info (source-info x) (source-info y))))
+(defn merge-source-info [a x y]
+  (with-source-info a (merge-info (source-info x) (source-info y))))
 
 (defn &info [m]
   (&let [start &next-info

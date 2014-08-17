@@ -20,6 +20,65 @@ Random TODO items for this skylark implementation in Clojure
    (def fib (one-arg-function fib$internal))
 
 
+   def f(x):
+     a = 1
+     b = 2
+     if x:
+       a = 10
+     else:
+       b = 20
+     return a+b
+
+   (defn f [x]
+     (let [a 1 b 2]
+       (let [[a b] (if x [10 b] [a 20])]
+         (+ a b))))
+
+
+   def f(x):
+     a = 1
+     b = 2
+     if x:
+       return 10
+     else:
+       b = 20
+     return a+b
+
+   (defn f [x]
+     (let [a 1 b 2]
+       (if x 10
+          (let [b 20]
+            (+ a b)))))
+
+   def f(x, y):
+     a = 1
+     b = 2
+     if x:
+       if y:
+         return 5
+       else:
+         a = 10
+     else:
+       b = 20
+     return a+b
+
+   (defn f [x y]
+     (let [[ret? a b]
+             (if x
+               (let [[ret? a] (if y [5 nil] [nil 10])]
+                 [ret? a b])
+               [nil nil 20])]
+       (or ret (+ a b))))
+
+   (defn f [x y]
+     (let [[ret? a b]
+             (if x
+               ;; small number of extra variables just copied
+               ;; in small number of branches with little computations.
+               (if y [5 nil b] [nil 10 b])]
+               [nil nil 20])]
+       (if (not (nil? ret)) ret (+ a b)))
+
 * enumerate effects that can be done by a block of code,
   that have to be accounted by some monad at runtime,
   and some state in the compile-time analysis.
@@ -153,8 +212,9 @@ return a
    one that enables delimited continuations, but requires
    the caller to be a trampoline.
 
-*
-   ;; nonlocals globals
+* Environments
+;; nonlocals globals
+
 
 ;; A (local) Environment maps identifiers to values, and has an optional parent Environment
 ;; We only need it for macros. Actually, if we stick to global macros that can't be shadowed,
@@ -173,3 +233,9 @@ return a
 ;;   which bindings exactly are visible from there?
 ;;   Probably a latter pass.
 
+* use core.typed for type analysis?
+
+* each computation happens in a tower of effect monads,
+  with effects a subset of the set of all effects.
+  to combine c1 in m1 and c2 in m2,
+  write respective adapters into union(m1,m2) and bind.

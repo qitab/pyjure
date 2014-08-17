@@ -68,10 +68,7 @@
 
 ;; TODO: monadic treatment of environment?
 
-(declare &desugar)
-
-(defn &desugar* [xs] (&map &desugar xs))
-(def &desugar-args (&args desugar))
+(declare &desugar &desugar* &desugar-args)
 
 (defn constint [n] [:constant [:integer (+ 0N n)]])
 
@@ -167,7 +164,8 @@
       [[':from [dots dottedname] imports]] (do (NFN) (&return x)) ;; (NIY {:r "&desugar from"})
       [[':import & dotted-as-names]] (&return x) ;; TODO: process import bindings
       [[(:or ':id ;; TODO: handle lexical bindings in macro environment
-             ':return ':constant) & _]] (&return x) ;; :constant is for recursive desugar
+             ':unbind ':constant ;; these two are for recursive desugaring.
+             ':return) & _]] (&return x)
       [[(:or ':integer ':float ':string ':bytes ':imaginary
              ':True ':False ':None ':Ellipsis
              ':zero-uple ':empty-list ':empty-dict) & _]] (&return (v :constant x))
@@ -175,14 +173,14 @@
       [[(:or ':module ':pass) & xs]] (&desugar (w :suite xs))
       ;; :builtin is for recursively desugared code.
       ;; :lt :gt :eq :ge :le :ne :in :is :not-in :is_not are transformed into builtin's as well.
-      [[(:or ':builtin ':binop ':unaryop) op & args]]
+      [[(:or ':builtin ':binop ':unaryop ':handler-bind) op & args]] ;; handler-bind has a var name, not op
       (&let [as (&desugar* args)] (w :builtin op as))
       [[':del _ _ & _]] (&desugar (w :suite (map #(v :del %) (rest x))))
       [[':del [:id n]]] (&return (v :unbind n)) ;; del identifier remains as primitive
       [[':del [':subscript obj idx]]]
       (&return (v :builtin :delitem obj idx))
       [[':del _]] ($syntax-error x "Not a valid thing to del-ete %s")
-      [[tag :guard #{:bind :argument :except :raise ;; TODO: handle
+      [[tag :guard #{:bind :argument :except :raise :unwind-protect
                      :suite :while :break :continue :if :yield :yield-from :all} & args]]
       (&let [s (&desugar* args)] (w tag s))
       [[tag :guard #{:assert :list :dict :set :tuple :slice :subscript} & args]]
@@ -232,11 +230,29 @@
                                :else ($syntax-error x "Not a valid comprehension %s")) comp))
                      (v :yield expr)))))
       [[':try body excepts else finally]]
-      (&let [body (&desugar body)
-             excepts (&desugar* excepts) ;;TODO: bindings
-             else (&desugar else)
-             finally (&desugar finally)]
-            (v :try body (vec excepts) else finally))
+      (&desugar
+       (let [handled
+             (cond
+              (empty? excepts) (do (assert (nil? else)) body)
+              (not (every? first (pop excepts)))
+              ($syntax-error x "expression-less except statement must be in last position")
+              :else (with-gensyms [ex]
+                      (let [[clauses else] (if (nil? (second (last excepts)))
+                                             [(pop excepts) (nth (last excepts) 3)]
+                                             [excepts (v :raise ex)])]
+                        (v :handler-bind
+                           ex
+                           body
+                           (v :cond
+                              (vec (map (fn [[_ type target body :as xx]]
+                                          (letfn [(vv [& a] (copy-source-info (vec a) xx))]
+                                            [(vv :builtin :isinstance type ex)
+                                             (vv :unwind-protect
+                                                 (vv :suite (vv :bind target ex) body)
+                                                 (vv :unbind ex))]))
+                                        clauses))
+                              else)))))]
+         (if finally (v :unwind-protect handled finally) handled)))
       [[':call fun args]]
       (&let [f (&call-macro fun)
              z (if f (&bind (f x) &desugar)
@@ -277,13 +293,18 @@
                                (let [enter (c :call (c :attribute mgr (c :id "__enter__"))
                                               [[] nil [] nil])]
                                  (if target (c :bind target enter) enter))
-                               (c :try simpler []
-                                  (c :suite (c :assign [(c :tuple exception-type exception traceback)]
-                                               (c :builtin :exc_info)))
+                               (c :try simpler
+                                  [(c :except nil nil
+                                      (c :assign [(c :tuple exception-type exception traceback)]
+                                         (c :builtin :exc-info)))]
+                                  nil
                                   (c :suite
                                      (c :call (c :attribute mgr (c :id "__exit__"))
                                         [[exception-type exception traceback] nil [] nil])
                                      (c :del exception-type exception traceback)))))))]))))
       :else ($syntax-error x "Unrecognized form %s"))))
+
+(defn &desugar* [xs] (&map &desugar xs))
+(def &desugar-args (&args &desugar))
 
 (defn desugar [program] ((&desugar program) null-macro-environment))

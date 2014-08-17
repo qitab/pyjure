@@ -112,8 +112,6 @@ The macro expansion has relatively low overhead in space or time."
         (= x y) x
         :else :⊤))
 
-;;(defn $lift [f & args] (if ...
-
 (defn $true? [x] (= x true))
 (defn $false? [x] (= x false))
 (defn $unknown? [x] (= x nil))

@@ -227,7 +227,7 @@
          s (&optional (&char-if #{\+ \-}))
          * (&intpart (list* s c prefix))]))
 (def &point-float (&or (&bind (&optional (&intpart ())) &fraction)
-                       (&lift conj (&intpart ()) (&char= \.))))
+                       (&call conj (&intpart ()) (&char= \.))))
 (def &exponent-float (&bind (&or &point-float (&intpart ())) &exponent))
 (def &float-literal
   (&let [x (&or &exponent-float &point-float)]

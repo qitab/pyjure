@@ -17,6 +17,7 @@
           (flatten [acc x]
             (match [x]
               [[:suite & _]] (reduce flatten acc (rest x))
+              [[(:or ':nonlocal ':global) _]] acc
               :else (conj acc (c x))))]
     (when x
       (assert (vector? x))
@@ -40,8 +41,13 @@
             (v tag (c-args args) (c return-type) (c body)))
           ;; Suites: flatten them. Empty suites are eliminated, even in last position.
           ;; but if the overall suite is still empty, replace it by None.
+          ;; This can't be merged into previous pass, because
+          ;; (1) if you recurse into suite before you process, you miss the nonlocal and global elimination
+          ;; (2) if you recurse into suite after you process, you pay quadratic instead of linear cost
+          ;; and miss the elimination of empty suites.
           (:suite) (let [r (flatten () s)]
                      (cond (empty? r) (v :None)
                            (empty? (rest r)) (first r)
                            :else (w :suite (reverse r))))
+          (:nonlocal :global) (v :None) ; standalone statement not in a suite (!)
           ($syntax-error x "unexpected expression %s during cleanup pass"))))))

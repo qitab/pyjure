@@ -83,7 +83,7 @@
         [[h :guard #{:suite :return :raise :while :if} & a]] (&let [a (&A* a)] (w h (&A* a)))
         [[h :guard #{:yield :yield-from} & a]]
         (&let [a (&A* a) _ (&assoc-in [:generator?] true)] (w h (&A* a)))
-        [[:except type [:id s] :as target body]]
+        [[:handler-bind [:id s] :as target body handler]]
         (&let [type (&A type)
                _ (&assoc-in [:vars s :bound?] true)
                body (&A body)]

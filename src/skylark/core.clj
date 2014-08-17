@@ -35,7 +35,7 @@
    :desugar desugar/desugar
 
    ;; → AST1bis: annotating :function entries with scoping and effect information
-   :analyze-syntax syntax-analysis/A
+   :analyze-syntax syntax-analysis/analyze-syntax
 
    ;; → AST2: cleanup, with bindings resolved, suites merged, generator functions distinguished,
    ;; some invalid forms filtered, etc. Insert vars for later type analysis.

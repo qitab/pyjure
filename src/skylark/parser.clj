@@ -35,13 +35,13 @@
   (prev-info [σ] (:prev-info σ))
   (next-info [σ]
     (match (:in σ)
-      [[_ _ info]] info
-      _ (let [[file _ end] (:prev-info σ)] [file end end]))))
+      [[x]] (source-info x)
+      _ (if-let [[file _ end] (:prev-info σ)] [file end end]))))
 
 
 ;;; Parsing tokens and location information
 
-(defn &token [{[[_ _ info :as tok] & rest] :in}] [tok (->ParserState rest info)])
+(defn &token [{[tok & rest] :in}] [tok (->ParserState rest (source-info tok))])
 (defn &type-if [pred]
   (fn [{[[type _ info :as tok] & rest] :in :as σ}]
     (if (pred type) [tok (->ParserState rest info)] (&fail σ))))
@@ -235,10 +235,10 @@
                 &lambdef))
 
 (def &exprlist (&tuple-or-singleton (&or &expr &star-expr)))
-(def &comp-for (&lift cons (&info (&do (&type :for)
+(def &comp-for (&call cons (&info (&do (&type :for)
                                        (&tag :comp-for &exprlist (&do (&type :in) &or-test))))
                       (&optional &comp-iter)))
-(def &comp-if (&lift cons (&info (&do (&type :if) (&tag :comp-if &test-nocond)))
+(def &comp-if (&call cons (&info (&do (&type :if) (&tag :comp-if &test-nocond)))
                      (&optional &comp-iter)))
 (def &comp-iter (&or &comp-for &comp-if))
 
@@ -319,7 +319,7 @@
 
 (def &if-statement
   (&do (&type :if)
-       (&tag :cond (&lift vec (&non-empty-separated-list (&vector &test &colon-suite) (&type :elif)))
+       (&tag :cond (&vec (&non-empty-separated-list (&vector &test &colon-suite) (&type :elif)))
              &else)))
 
 (def &while-statement (&prefixed :while &test &colon-suite &else))
@@ -338,7 +338,7 @@
   (&let [_ (&type :try)
          body &colon-suite
          [excepts else] (&optional (&vector (&non-empty-list &except-clause) &else))
-         finally (&do (&type :finally) &colon-suite)]
+         finally (let [m (&do (&type :finally) &colon-suite)] (if excepts (&optional m) m))]
         [:try body (vec excepts) else finally]))
 
 (def &with-item (&vector &test (&optional (&do (&type :as) &expr))))
