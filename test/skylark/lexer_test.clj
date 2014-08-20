@@ -1,20 +1,18 @@
 (ns skylark.lexer-test
-  (:require [leijure.delta-position :as delta])
-  (:require [clojure.string :as str])
-  (:require [clojure.set :as set])
-  (:use [skylark.utilities])
-  (:use [skylark.parsing])
-  (:use [skylark.lexer])
-  (:use [clojure.test])
-  (:require [skylark.core :as sky]))
-
-(defn foo [] (->> "skylark/foo.py" clojure.java.io/resource sky/lex))
+  (:require [leijure.delta-position :as delta]
+            [clojure.string :as str]
+            [clojure.set :as set]
+            [skylark.core :as sky])
+  (:use [skylark.core-test]
+        [skylark.utilities]
+        [skylark.parsing]
+        [skylark.lexer]
+        [clojure.test]))
 
 (defn simplify [a] {:pre (vector? a)} (if (= (count a) 1) (first a) a))
 (defn test-lex* [input] (tryf #(sky/lex input)))
 (defn test-lex [input] (map simplify (test-lex* input)))
 (defn test-lex-position [input] (map #(:source-info (meta %)) (test-lex* input)))
-
 (defn test& [l input] (tryf #(l (mkLexerState (sky/position-stream input)))))
 
 (deftest lexer-test

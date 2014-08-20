@@ -39,10 +39,7 @@
 ;; or that conflicting locality declarations were made,
 ;; or that a variable is read but never bound.
 
-(declare &A)
-
-(defn &A* [xs] (&map &A xs))
-(def &Aargs (&args &A))
+(declare &A &A* &Aargs)
 
 (defn args-vars [[args star-arg more-args kw-arg]]
   (map first `(~@args ~star-arg ~@more-args ~kw-arg)))
@@ -67,8 +64,9 @@
             (w [& a] (with-meta (apply vec* a) m))
             (M [n & a] (with-meta (vec a) (merge m n)))
             (&x [& m] (&do (apply &do m) (&return x)))
-            (&m [& m] (&let [x (apply &do m)] (with-meta x m)))]
+            (&m [& a] (&let [x (apply &do a)] (with-meta x m)))]
       (match [x]
+        [nil] &nil
         [[:id s]] (&x (&assoc-in [:vars s :referred?] true))
         [[:bind [:id s] :as n a]] (&let [_ (&assoc-in [:vars s :bound?] true)
                                          a (&A a)]
@@ -76,13 +74,13 @@
         [[:unbind [:id s]]] (&x (&assoc-in [:vars s :referred?] true))
         [[:nonlocal [:id s]]] (&x (&assoc-in [:vars s :nonlocal] true))
         [[:global [:id s]]] (&x (&assoc-in [:vars s :global] true))
-        [[:try body excepts else finally]]
-        (&m (&tag :try (&A body) (&A* excepts) (&A else) (&A finally)))
+        [[:unwind-protect body protection]] (&m (&tag :unwind-protect (&A body) (&A protection)))
+        [[:handler-bind body handler]] (&m (&tag :handler-bind (&A body) (&A handler)))
+        [[:builtin f & a]] (&let [a (&A* a)] (w :builtin f a))
         [[(:or ':from ':import ':constant ':break ':continue) & _]] (&x)
-        [[:builtin f & a]] (&let [a (&A* a)] (w :builtin f (&A* a)))
-        [[h :guard #{:suite :return :raise :while :if} & a]] (&let [a (&A* a)] (w h (&A* a)))
+        [[h :guard #{:suite :return :raise :while :if} & a]] (&m (&tag* h (&A* a)))
         [[h :guard #{:yield :yield-from} & a]]
-        (&let [a (&A* a) _ (&assoc-in [:generator?] true)] (w h (&A* a)))
+        (&let [a (&A* a) _ (&assoc-in [:generator?] true)] (&m (&tag h (&A* a))))
         [[:handler-bind [:id s] :as target body handler]]
         (&let [type (&A type)
                _ (&assoc-in [:vars s :bound?] true)
@@ -111,6 +109,11 @@
         ;; any remaining starred expression is a syntax error
         [[:starred & _]]
         ($syntax-error x "starred expressions are only allowed as targets to assignment %s")
-        :else ($syntax-error x "unexpected expression %s during syntax_analysis pass")))))
+        :else ($syntax-error x "unexpected expression %s during syntax analysis pass")))))
 
-(defn analyze-syntax [x] ((&A x) nil))
+(defn &A* [xs] (&map &A xs))
+(def &Aargs (&args &A))
+
+(defn analyze-syntax [x]
+  (let [[x E] ((&A x) nil)]
+    x))

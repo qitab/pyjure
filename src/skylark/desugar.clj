@@ -129,14 +129,14 @@
             [right init] (if moreops (with-gensyms [g] [g [(v :bind g arg)]]) [arg nil])]
         (i `[:suite ~@init ~(v :if (merge-source-info [:builtin op left right] left right)
                                (expand-compare right moreops moreargs x)
-                               (v :constant :False))]))
-      (v :constant :True))))
+                               (v :constant (v :False)))]))
+      (v :constant (v :True)))))
 
 (defn expand-cond [clauses else x]
   (letfn [(v [& a] (copy-source-info (vec a) x))]
     (if-let [[[test iftrue] & moreclauses] clauses]
       (v :if (v :builtin :truthy test) iftrue (expand-cond moreclauses else x))
-      (or else (v :constant :None)))))
+      (or else (v :constant (v :None))))))
 
 (defn expand-decorator [x base]
   (let [decorators (last x)
@@ -164,8 +164,7 @@
       [[':from [dots dottedname] imports]] (do (NFN) (&return x)) ;; (NIY {:r "&desugar from"})
       [[':import & dotted-as-names]] (&return x) ;; TODO: process import bindings
       [[(:or ':id ;; TODO: handle lexical bindings in macro environment
-             ':unbind ':constant ;; these two are for recursive desugaring.
-             ':return) & _]] (&return x)
+             ':unbind ':constant) & _]] (&return x) ;; these two are for recursive desugaring.
       [[(:or ':integer ':float ':string ':bytes ':imaginary
              ':True ':False ':None ':Ellipsis
              ':zero-uple ':empty-list ':empty-dict) & _]] (&return (v :constant x))
@@ -183,7 +182,7 @@
       [[tag :guard #{:bind :argument :except :raise :unwind-protect
                      :suite :while :break :continue :if :yield :yield-from :all} & args]]
       (&let [s (&desugar* args)] (w tag s))
-      [[tag :guard #{:assert :list :dict :set :tuple :slice :subscript} & args]]
+      [[tag :guard #{:return :assert :list :dict :set :tuple :slice :subscript} & args]]
       (&let [s (&desugar* args)] (w :builtin tag s))
       [[':if-expr test body else]]
       (&let [[test body else] (&desugar* [test body (or else (v :None))])]
@@ -202,7 +201,9 @@
       (if (seq (rest args)) (&desugar (w :suite (map #(v tag %) args))) (&return x))
       [[':attribute expr [:id s] :as n]]
       (&let [x (&desugar expr)]
-            (v :builtin :attribute x (copy-source-info [:string s] n)))
+            (v :builtin :attribute x
+               (letfn [(c [& x] (copy-source-info (vec x) n))]
+                 (c :constant (c :string s)))))
       [[':compare left ops args]] (&desugar (expand-compare left ops args x))
       [[':cond clauses else]] (&desugar (expand-cond clauses else x))
       [[':lambda args body]] (&desugar (v :function args nil body))
@@ -225,10 +226,11 @@
              (reduce (fn [statement comp]
                        (copy-source-info
                         (match [comp]
-                               [[':comp-for target gen]] [:for target gen statement]
+                               [[':comp-for target generator]] [:for target generator statement nil]
                                [[':comp-if test]] [:if-expr test statement nil]
-                               :else ($syntax-error x "Not a valid comprehension %s")) comp))
-                     (v :yield expr)))))
+                               :else ($syntax-error x "Not a valid comprehension %s"
+                                                    [:expr :comp] {:expr x :comp comp})) comp))
+                     (v :yield expr) gen))))
       [[':try body excepts else finally]]
       (&desugar
        (let [handled
@@ -264,7 +266,7 @@
        #(&let [args (&desugar-args args)
                return-type (&desugar return-type)
                body (&desugar body)] ;; TODO: desugar in lexical environment
-              (v :bind name (v :function args return-type (v :suite body (v :None))))))
+              (v :bind name (v :function args return-type (v :suite body (v :constant (v :None)))))))
       [[':class name args body decorators]]
       (expand-decorator x ;; TODO? recursively add a @method decorator to all function definitions?
        #(&let [args (&desugar-args args)
@@ -307,4 +309,6 @@
 (defn &desugar* [xs] (&map &desugar xs))
 (def &desugar-args (&args &desugar))
 
-(defn desugar [program] ((&desugar program) null-macro-environment))
+(defn desugar [program]
+  (let [[x E] ((&desugar program) null-macro-environment)]
+    x))

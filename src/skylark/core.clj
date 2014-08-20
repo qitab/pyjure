@@ -18,33 +18,33 @@
 
 (def passes
   [;; * → [reader:java.io.Reader filename:String]
-   :to-reader utilities/ensure-reader-and-filename
+   :to-reader #'utilities/ensure-reader-and-filename
 
    ;; → [([char:Character & Position]...) filename:String]
    ;; where Position = [line:Integer column:Integer]
-   :position-stream lexer/position-stream ; NB: trivial wrapper around leijure.delta-position
+   :position-stream #'lexer/position-stream ; NB: trivial wrapper around leijure.delta-position
 
-   ;; → ([type:keyword data:* info:Info]...)
+   ;; → ^{:source-info Info} ([type:keyword data:*]...)
    ;; where Info = [filename:String start:Position end:Position]
-   :lex lexer/lex
+   :lex #'lexer/lex
 
    ;; → AST: nested ^{:source-info Info} [type:keyword & data:*]
-   :parse parser/parse
+   :parse #'parser/parse
 
    ;; → AST1: smaller, desugared language, with macros expanded.
-   :desugar desugar/desugar
+   :desugar #'desugar/desugar
 
    ;; → AST1bis: annotating :function entries with scoping and effect information
-   :analyze-syntax syntax-analysis/analyze-syntax
+   :analyze-syntax #'syntax-analysis/analyze-syntax
 
    ;; → AST2: cleanup, with bindings resolved, suites merged, generator functions distinguished,
    ;; some invalid forms filtered, etc. Insert vars for later type analysis.
-   :cleanup cleanup/cleanup
+   :cleanup #'cleanup/cleanup
 
    ;; → AST3: type analysis via 0CFA (?)
 
    ;; → converting to clojure code, executable with skylark.runtime
-   :clojurify clojurifier/C
+   :clojurify #'clojurifier/C
   ])
 
 (defn skylark

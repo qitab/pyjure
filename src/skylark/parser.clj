@@ -182,7 +182,8 @@
   (&leti [x m
           f (&optional &comp-for)
           [l c] (if f &nil (&vector (&list (&do &comma m)) &optional-comma))]
-         (cond f [({:tuple :generator, :list :list-comp, :dict :dict-comp, :set :set-comp} kind) x f]
+         (cond f [({:tuple :generator, :list :list-comp, :dict :dict-comp, :set :set-comp} kind)
+                  x (vec f)]
                (and (empty? l) (nil? c) (= kind :tuple)) x
                :else (vec* kind x l))))
 

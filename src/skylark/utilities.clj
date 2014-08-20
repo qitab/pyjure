@@ -1,4 +1,5 @@
-(ns skylark.utilities)
+(ns skylark.utilities
+  [:require [clojure.repl]])
 
 ;; Miscellaneous general purpose utilities.
 ;; TODO: move them to leijure?
@@ -50,7 +51,9 @@
     (dorun (map #(System/arraycopy %2 0 out %1 %3) offsets arrays sizes))
     out))
 
-(defn tryf [fun] (try (fun) (catch clojure.lang.ExceptionInfo x (.data x))))
+(defn tryf [fun]
+  (try (fun) (catch clojure.lang.ExceptionInfo x
+               (println (.data x)) (clojure.repl/pst x) (println (.data x)) x)))
 
 (defn thread-args [front S is E]
   ;; given a semantic function S, a list of inputs is, and an environment E,

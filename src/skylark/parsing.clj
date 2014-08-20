@@ -65,7 +65,7 @@
        `(&return ~result) ;; or do we want later binding and use (fn [σ] ~result)?
        (let [[binding parser & more] bindings]
          `(&bind ~parser (fn [~binding] (&let ~more ~result)))))))
-(defmacro &do1 [m & ms] `(&let [~'x# ~m ~'_ (&do ~@ms)]))
+(defmacro &do1 ([m & ms] `(&let [~'x# ~m ~'_ (&do ~@ms)])))
 
 (defmacro &call [fun & ms] ;; often call &lift
   (let [vars (map #(do % (gensym)) ms)
@@ -164,3 +164,12 @@
 (defn &get-in
   ([keys] (fn [E] [(get-in E keys) E]))
   ([keys not-found] (fn [E] [(get-in E keys not-found) E])))
+
+(defmacro &DBG [tag f & x]
+  `(let [x# ~(vec x)
+         tag# ~tag]
+     (fn [E#]
+       (print tag#) (print " => ") (prn x#)
+       (let [[v# E#] ((apply ~f x#) E#)]
+         (print tag#) (print " <= ") (prn v#)
+         [v# E#]))))

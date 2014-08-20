@@ -1,16 +1,15 @@
-(ns skylark.desugar-test
+(ns skylark.syntax-analysis-test
   (:use [clojure.test]
         [clojure.core.match :only [match]]
         [skylark.core-test]
         [skylark.utilities]
         [skylark.parsing]
-        [skylark.desugar])
+        [skylark.syntax-analysis])
   (:require [skylark.core :as sky]))
 
-(defn test-desugar [input] (tryf #(sky/desugar input)))
-
-(deftest desugar-test
+(deftest syntax-analysis-test
   ;; (testing "desugar smoketest")
   (testing "Every python desugaring rule"
-    (match [(tryf #(sky/desugar python-test))] [[':suite & _]]
-           (is (= 1 1)))))
+    (let [x (sky/desugar python-test)
+          y (analyze-syntax x)]
+      (is (= x y)))))
