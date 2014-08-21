@@ -45,7 +45,7 @@
           ;; (1) if you recurse into suite before you process, you miss the nonlocal and global elimination
           ;; (2) if you recurse into suite after you process, you pay quadratic instead of linear cost
           ;; and miss the elimination of empty suites.
-          (:suite) (let [r (flatten () s)]
+          (:suite) (let [r (flatten () x)]
                      (cond (empty? r) (v :None)
                            (empty? (rest r)) (first r)
                            :else (w :suite (reverse r))))
