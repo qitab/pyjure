@@ -42,21 +42,25 @@
 (declare &A &A* &Aargs)
 
 (defn args-vars [[args star-arg more-args kw-arg]]
-  (map first `(~@args ~star-arg ~@more-args ~kw-arg)))
+  (map first `(~@args ~@(when star-arg (list star-arg))
+               ~@more-args ~@(when kw-arg (list kw-arg)))))
 
 (defn declare-locality [l x]
   #(if (or (nil? %) (= % l)) l
        ($syntax-error x "variable declared %s but was already declared %s"
                       [:locality :previous-locality] {:locality (name l) :previous-locality (name %)})))
 
-(defn check-effects [x]
+(defn check-effects [x E yield-allowed?]
   (map (fn [[v e]]
          (let [{l :locality b :bound? r :referred?} e]
            (when (and ({:nonlocal :global} l) b)
              ($syntax-error x "invalid side-effect: trying to bind variable %s declared as %s"
                             [:name :locality] {:name v :locality l}))))
-       (x :vars))
-  x)
+       (:vars E))
+  (when-not yield-allowed?
+    (when (:generator? E)
+      ($syntax-error x "invalid yield")))
+  E)
 
 (defn &A [x]
   (let [m (meta x)]
@@ -79,8 +83,8 @@
         [[:builtin f & a]] (&let [a (&A* a)] (w :builtin f a))
         [[(:or ':from ':import ':constant ':break ':continue) & _]] (&x)
         [[h :guard #{:suite :return :raise :while :if} & a]] (&m (&tag* h (&A* a)))
-        [[h :guard #{:yield :yield-from} & a]]
-        (&let [a (&A* a) _ (&assoc-in [:generator?] true)] (&m (&tag h (&A* a))))
+        [[h :guard #{:yield :yield-from} a]]
+        (&do (&assoc-in [:generator?] true) (&m (&tag h (&A a))))
         [[:handler-bind [:id s] :as target body handler]]
         (&let [type (&A type)
                _ (&assoc-in [:vars s :bound?] true)
@@ -93,7 +97,7 @@
                   (let [[body innerE] ((&A body) nil)]
                     (if (:generator? innerE)
                       ($syntax-error x "invalid yield in class %a" [:name] {:name s})
-                      (M (check-effects innerE) :class name args body)))))
+                      (M (check-effects x innerE false) :class name args body)))))
         [[:argument id type default]]
         ;; handles argument in the *outer* scope where the function is defined,
         ;; *NOT* in the inner scope that the function defines (see :function for that)
@@ -104,7 +108,7 @@
                   (let [[_ innerE] ((&map #(&assoc-in [:vars %] {:bound? true :locality :param})
                                           (args-vars args)) nil)
                         [body innerE] ((&A body) innerE)]
-                    (M {:vars (:vars innerE)}
+                    (M (check-effects x innerE true)
                        :function args return-type body))))
         ;; any remaining starred expression is a syntax error
         [[:starred & _]]
@@ -116,4 +120,5 @@
 
 (defn analyze-syntax [x]
   (let [[x E] ((&A x) nil)]
+    (check-effects x E false)
     x))

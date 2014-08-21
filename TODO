@@ -239,3 +239,5 @@ return a
   with effects a subset of the set of all effects.
   to combine c1 in m1 and c2 in m2,
   write respective adapters into union(m1,m2) and bind.
+
+* Q: what does python3 do of a global or nonlocal declaration at toplevel?

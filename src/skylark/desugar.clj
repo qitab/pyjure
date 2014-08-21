@@ -175,7 +175,7 @@
       [[(:or ':builtin ':binop ':unaryop ':handler-bind) op & args]] ;; handler-bind has a var name, not op
       (&let [as (&desugar* args)] (w :builtin op as))
       [[':del _ _ & _]] (&desugar (w :suite (map #(v :del %) (rest x))))
-      [[':del [:id n]]] (&return (v :unbind n)) ;; del identifier remains as primitive
+      [[':del [:id n] :as i]] (&return (v :unbind i)) ;; del identifier remains as primitive
       [[':del [':subscript obj idx]]]
       (&return (v :builtin :delitem obj idx))
       [[':del _]] ($syntax-error x "Not a valid thing to del-ete %s")
@@ -250,8 +250,12 @@
                                           (letfn [(vv [& a] (copy-source-info (vec a) xx))]
                                             [(vv :builtin :isinstance type ex)
                                              (vv :unwind-protect
-                                                 (vv :suite (vv :bind target ex) body)
-                                                 (vv :unbind ex))]))
+                                                 (vv :suite
+                                                     (if target (vv :bind target ex) (vv :suite))
+                                                     body)
+                                                 (vv :suite
+                                                     (if target (vv :unbind target) (vv :suite))
+                                                     (vv :unbind ex)))]))
                                         clauses))
                               else)))))]
          (if finally (v :unwind-protect handled finally) handled)))
@@ -294,7 +298,7 @@
                                (c :bind traceback (c :None))
                                (let [enter (c :call (c :attribute mgr (c :id "__enter__"))
                                               [[] nil [] nil])]
-                                 (if target (c :bind target enter) enter))
+                                 (if target (c :assign [target] enter) enter))
                                (c :try simpler
                                   [(c :except nil nil
                                       (c :assign [(c :tuple exception-type exception traceback)]

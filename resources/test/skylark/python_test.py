@@ -58,7 +58,7 @@ def ug1(x):
 @frills
 @more(frills)
 def ff():
-  with mucho(gusto), efficiency*10 as (not usual):
+  with mucho(gusto), efficiency*10 as (usual,none):
     try:
       not be(stupid)
     finally: start()
