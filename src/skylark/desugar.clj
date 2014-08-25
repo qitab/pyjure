@@ -27,6 +27,8 @@
 ;; Not yet(?):
 ;; ? with: is also expressed using higher-order functions? ==> not yet, due to assignments?
 ;; ? binary and unary operations are expanded into calls to primitive functions.
+;; ? mutual recursion within sub defs??? We want mutually recursive letfn, not let (fn ...) !!!
+;; ? A module is not just a suite, after all: global bindings are happening!
 
 
 ;; A macro-environment maps lists of symbols (as in dotted names) to macros
@@ -194,9 +196,11 @@
             (v :bind gen generator)
             (v :while (v :builtin :gen-next? gen)
                (v :suite
-                  (v :assign [(v :tuple gen target)] (v :builtin :gen-next gen))
-                  body))
-            (or else (v :suite)))))
+                  (v :bind target (v :builtin :gen-first gen))
+                  (v :bind gen (v :builtin :gen-rest gen))
+                  body
+                  (v :continue))
+               else))))
       [[tag :guard #{:global :nonlocal} & args]]
       (if (seq (rest args)) (&desugar (w :suite (map #(v tag %) args))) (&return x))
       [[':attribute expr [:id s] :as n]]

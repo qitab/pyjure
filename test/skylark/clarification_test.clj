@@ -1,15 +1,14 @@
-(ns skylark.syntax-analysis-test
+(ns skylark.clarification-test
   (:use [clojure.test]
         [clojure.core.match :only [match]]
         [skylark.core-test]
         [skylark.utilities]
         [skylark.parsing]
-        [skylark.syntax-analysis])
+        [skylark.clarification])
   (:require [skylark.core :as sky]))
 
-(deftest syntax-analysis-test
-  ;; (testing "desugar smoketest")
-  (testing "Every python desugaring rule"
+(deftest clarification-test
+  (testing "Every python function scope clarification"
     (let [x (sky/desugar python-test)
-          y (analyze-syntax x)]
+          [y E] (clarify x)]
       (is (= x y)))))

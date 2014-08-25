@@ -102,6 +102,13 @@ The macro expansion has relatively low overhead in space or time."
     (doseq [xt xts] (foo xt))
     (when last-xt (foo last-xt))))
 
+(defn mapmap [f m] (into {} (for [[k v] m] [k (f v)])))
+(defn mapcombine [f m1 m2]
+  (loop [m {} m1 (seq m1) m2 m2]
+    (if m1
+      (let [[[k v1] & r1] m1 v2 (get m2 k) r2 (dissoc m2 k)]
+        (recur (assoc m k (f v1 v2)) r1 r2))
+      (into m (map (fn [[k v2]] [k (f nil v2) ]) m2)))))
 
 ;; Simple compile-time logic:
 ;; :⊥ \bot(tom) means
@@ -147,3 +154,64 @@ The macro expansion has relatively low overhead in space or time."
 
 (defn NIY [& args] (apply $error :not-implemented-yet args))
 (defn NFN [& args] nil) ;; nil for now
+
+
+
+;;; FURAL logic for variables: true (unconstrained), :required, :affine, :linear, nil or false (unused)
+
+(defn use-once-more [x]
+  (case x
+    (nil false) :linear
+    (:linear :affine :required true) :required))
+
+(defn use-maybe-once-more [x]
+  (case x
+    (nil false) :affine
+    (:linear :required) :required
+    (:affine true) true))
+
+(defn use-many-more [x]
+  :required)
+
+(defn use-maybe-many-more [x]
+  (case x (:linear :required) :required true))
+
+(defn use-both [x y] ;; in a suite, use resource x times, then y times
+  (case x
+   (nil false) y
+   (:linear) (use-once-more y)
+   (:affine) (use-maybe-once-more y)
+   (:required) x
+   (true) (use-maybe-many-more y)))
+
+(defn use-maybe [x] ;; may happen or not
+  (case x
+    (nil false) false
+    (:linear :affine) :affine
+    (:required true) true))
+
+(defn use-either [x y] ;; in two branches, use resource x times or y times
+  (cond
+   (= x y) x
+   (not x) (use-maybe y)
+   (not y) (use-maybe x)
+   (= x :linear) y ;; :affine, :required, true are the remaining choices for y
+   (= y :linear) x
+   :else true)) ;; either one is true, or one is :required and the other :affine
+
+(defn use-repeat [x] ;; repeat x many times
+  (case x
+    (nil false) false
+    (:linear :required) :required
+    (:affine true) true))
+
+(defn use-maybe-repeat [x] ;; repeat x zero, one or many times
+  (boolean x))
+
+(defn use-* [x y] ;; multiply occurrence x by occurrence y
+  (case x
+    (nil false) false
+    (:linear) y
+    (:affine) (use-maybe y)
+    (:required) (use-repeat y)
+    (true) (use-maybe-repeat y)))

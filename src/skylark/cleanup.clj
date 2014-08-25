@@ -6,12 +6,11 @@
 ;;       error on binding any but a local variable.
 ;; TODO? insert vars for type inference
 
-(defn cleanup [x]
+(defn c [x]
   (letfn [(m [f] (copy-meta f x))
           (v [& s] (m (vec s)))
           (w [& s] (m (apply vec* s)))
-          (c [x] (cleanup x))
-          (c* [s] (map cleanup s))
+          (c* [s] (map c s))
           (c-args [[args rarg moreargs kwarg]]
             (v (vec (c* args)) (c rarg) (vec (c* moreargs)) (c kwarg)))
           (flatten [acc x]
@@ -51,3 +50,7 @@
                            :else (w :suite (reverse r))))
           (:nonlocal :global) (v :None) ; standalone statement not in a suite (!)
           ($syntax-error x "unexpected expression %s during cleanup pass"))))))
+
+
+(defn cleanup [[x E]]
+  [(c x) E])

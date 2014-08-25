@@ -166,6 +166,44 @@ return a
    (if return? a ;; optimization: because a is the next position
        CONTINUATION))
 
+   ;; could directly return, but then the other continuation would
+   ;; have to be duplicated... optimization:
+   ;; return directly if the *other* branch only appears once.
+   ;; maybe we can ensure that's always the case?
+   (loop [broken# false ;; optimization: make it a special value for g# ?
+          g# g#
+          a  a
+          b  b
+          c  c]
+     (if (and (not broken#) (seq g#))
+         (let [target (first g#)
+               g# (rest g#)]
+           (if ~foo (let [c ($add c e)] (recur false g# a b c))
+              (if ~bar (let [b c] (recur true g# a b c))
+                  (if ~baz a
+                      (let [a (f a target)]
+                           (recur false g# a b c))))))))]
+
+   ;; e is refered but never modified, so needn't be returned
+   ;; if any of a, b, c wasn't needed later,
+   ;; it wouldn't be needed as a return function either.
+    (if (seq g#)
+       (let [d# (decons g#)
+             target (first d#)
+             g# (second d#)]
+          (if ~foo (let [c ($add c e)] (recur g# a b c))
+              (if ~bar (let [b c] [nil a b c])
+                  (if ~baz [true a nil nil]
+                      (let [a (f a target)]
+                           (recur g# a b c))))))))]
+   ;; because return is an option, call it
+   ;; if it were either always return or never return, we wouldn't
+   ;; need the conditional
+   (if return? a ;; optimization: because a is the next position
+       CONTINUATION))
+
+
+
 * to preserve tail-position in for/while loops,
   we can't have tail-called into a continuation function.
   instead, we have to use some monadic transform to simulate return
@@ -241,3 +279,5 @@ return a
   write respective adapters into union(m1,m2) and bind.
 
 * Q: what does python3 do of a global or nonlocal declaration at toplevel?
+  nonlocal is an error, global is ignored (or inherited?)
+

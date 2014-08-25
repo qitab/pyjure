@@ -9,8 +9,9 @@
             [skylark.lexer :as lexer]
             [skylark.parser :as parser]
             [skylark.desugar :as desugar]
-            [skylark.syntax-analysis :as syntax-analysis]
+            [skylark.clarification :as clarification]
             [skylark.cleanup :as cleanup]
+            [skylark.continuation-analysis :as continuation-analysis]
             [skylark.clojurifier :as clojurifier]))
 
 ;; TODO: this file should just combine together all the passes.
@@ -34,14 +35,16 @@
    ;; → AST1: smaller, desugared language, with macros expanded.
    :desugar #'desugar/desugar
 
-   ;; → AST1bis: annotating :function entries with scoping and effect information
-   :analyze-syntax #'syntax-analysis/analyze-syntax
+   ;; → [AST1bis effect]: clarifying: process global and nonlocal declarations detect presence of yield,
+   ;; and annotate :function and :class entries with scoping and effect information.
+   :clarify #'clarification/clarify
 
    ;; → AST2: cleanup, with bindings resolved, suites merged, generator functions distinguished,
    ;; some invalid forms filtered, etc. Insert vars for later type analysis.
    :cleanup #'cleanup/cleanup
 
-   ;; → AST3: type analysis via 0CFA (?)
+   ;; → AST3: control flow via 0CFA (?)
+   :analyze-continuations #'continuation-analysis/analyze-continuations
 
    ;; → converting to clojure code, executable with skylark.runtime
    :clojurify #'clojurifier/C

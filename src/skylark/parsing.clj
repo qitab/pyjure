@@ -109,6 +109,9 @@
     (let [[args star-arg more-args kw-arg] x]
     (&vector (&vec (&map f args)) (f star-arg) (&vec (&map f more-args)) (f kw-arg)))))
 
+(defn args-vars [[args star-arg more-args kw-arg]]
+  (map first `(~@args ~@(when star-arg (list star-arg))
+               ~@more-args ~@(when kw-arg (list kw-arg)))))
 
 ;;; Source information processing
 
