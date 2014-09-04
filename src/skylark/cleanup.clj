@@ -5,6 +5,7 @@
 ;; TODO? maintain a lexical environment, resolve bindings,
 ;;       error on binding any but a local variable.
 ;; TODO? insert vars for type inference
+;; TODO? group together with another phase?
 
 (defn c [x]
   (letfn [(m [f] (copy-meta f x))

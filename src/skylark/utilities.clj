@@ -215,3 +215,11 @@ The macro expansion has relatively low overhead in space or time."
     (:affine) (use-maybe y)
     (:required) (use-repeat y)
     (true) (use-maybe-repeat y)))
+
+(defn use-multiplier [x] ;; curried variant of use-*
+  (case x
+    (nil false) (fn [_] false)
+    (:linear) (fn [y] y)
+    (:affine) use-maybe
+    (:required) use-repeat
+    (true) use-maybe-repeat))

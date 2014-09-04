@@ -5,7 +5,9 @@
         [skylark.runtime]))
 
 (comment
-"TODO: rename this pass appropriately when it's done.
+"TODO? rename this pass appropriately when it's done. liveness_analysis_1 ?
+TODO? treat tail positions specially? they mightn't need capture return / loop in the same way.
+TODO? head positions also are surefire, not maybe, in not needing to capture an earlier exception.
 
 This pass will do a backward analysis to annotate each node
 with which effects its *future* is capturing:
@@ -19,22 +21,37 @@ Information is stored in metadata for each node.
 
 The analysis state is a map with keys being:
 :vars (map variable names (strings) to FURAL values)
-:effects (map the following to boolean)
+:continuations (map the following to FURAL values;
+  actually FAL for all but yield, since the language has no multiple-use continuations;
+  we could include :raise, but at this point, before type analysis,
+  too few things are guaranteed NOT to raise for that to bring useful information.)
+  :suite (nil, this is in tail position; :linear, this is not in a loop; true, this is in a loop)
+  :return (:linear, this will return; :affine, this will maybe return; nil this never returns)
+  :raise (:linear, this raise an exception; :affine, this will maybe raise; nil this never raises)
+  :break
+  :continue
+  :yield
+:effects (map the following to FL value)
   :return (the continuation captures whether this part of the code returns),
-  :except (the continuation captures whether this part of the code raises exceptions),
+  :raise (the continuation captures whether this part of the code raises exceptions),
+  :break (we're in a loop, and the code may break)
+  :continue (we're in a loop, and the code continue)
+  :yield (we're in a generator, and the code may capture continuations, boolean).
   :finally (the continuation captures bindings for non-local exits),
-  :loop (we're in a loop, and the code may break or continue, boolean)
-  :continuation (we're in a generator, and the code may capture continuations, boolean).
 
-FURAL values for variables may be
-which may be nil (variable not captured), false (variable shadowed before it is read),
+FURAL values for variables may be which may be
+false (variable shadowed before it is read) or equivalently nil (variable not captured),
 :linear (variable read exactly once), :affine (variable read zero or one time),
-:required (variable read one or more times), true (unconstrained, variable read zero or more times).
+:required (variable read one or more times), true (Unconstrained, variable read zero or more times).
 
 Problem: effects to the end of the branch vs all effects including beyond the current branch.
 ")
 
-(defn map-capturing-vars [f E] (update-in E [:capturing :vars] #(mapmap f %)))
+(defn env-combine [fun E E']
+  (into {} (map #(do [% (mapcombine fun (% E) (% E'))]) [:vars :continuations :effects])))
+(defn env-either [E E'] (env-combine use-either E E'))
+(defn env-both [E E'] (env-combine use-both E E'))
+
 
 (declare &A &A* &Aargs)
 
@@ -48,66 +65,55 @@ Problem: effects to the end of the branch vs all effects including beyond the cu
           [(vec args) star-arg (vec more-args) kw-arg])
     &nil))
 
-(defn capvars [E] (get-in E [:capturing :vars]))
-
 (defn &A [x]
   ;; NB: reverse order matters in listing effect capturing
-  (letfn [(&r [a] (fn [E] (with-meta a (assoc (meta x) :capturing (:capturing E)))))
+  (letfn [(&r [a] (fn [E] (with-meta a (assoc (meta x) :capturing E))))
           (&v [h & as] (&bind (&A* as) #(&r (into h %))))]
     (match [x]
       [nil] &nil
-      [[:id s]] (&do (&update-in [:capturing :vars s] use-once-more) (&r x))
-      [[:bind [:id s] :as n a]] (&let [_ (&assoc-in [:capturing :vars s] false)
+      [[:id s]] (&do (&update-in [:vars s] use-once-more) (&r x))
+      [[:bind [:id s] :as n a]] (&let [_ (&assoc-in [:vars s] false)
                                        a (&A a)
                                        * (&r [:bind n a])])
-      [[:unbind [:id s]]] (&do (&assoc-in [:capturing s] false) (&r x))
+      [[:unbind [:id s]]] (&do (&assoc-in [:vars s] false) (&r x))
       [[:builtin f & a]] (&let [a (&A* a) * (&r (vec* :builtin f a))])
       [[:call f a]] (&let [a (&Aargs a) f (&A f) * (&r [:call f a])])
       [[:suite & a]] (&let [a (&A* a) * (&r (vec* :suite a))])
       [[h :guard #{:return :raise} a]]
-      (&let [_ (fn [E] [nil (if (or (get-in E [:capturing :finally])
-                                    (and (= h :raise) (get-in E [:capturing :except])))
-                              E
-                              (assoc-in E [:capturing :vars] nil))])
+      (&let [_ (fn [E] [nil {:vars nil :continuations {h :linear} :effects (:effects E)}])
              a (&A a)
              * (&r [h a])])
       [[:if test body else]]
-      (fn [E] (let [E' (-> E (assoc-in [:capturing :vars] nil)
-                           (assoc-in [:capturing :effects :return] true))
+      (fn [E] (let [E' (-> E (assoc-in [:vars] nil)
+                           (assoc-in [:effects :return] :linear))
                     [body Eb] ((&A body) E')
                     [else Ee] ((&A else) E')
-                    vars' (mapcombine use-either (capvars Eb) (capvars Ee))
-                    vars'' (mapcombine use-both vars' (capvars E))
-                    E'' (assoc-in E [:capturing :vars] vars'')
+                    E'' (env-either Eb Ee)
                     [test E'''] ((&A test) E'')]
                 ((&r [:if test body else]) E''')))
       [[:while test body else]]
-      ;; TODO: don't do this double traversal here: it makes this pass exponential!
-      ;; instead, have another pass (explicit or merged with next) for the repeating.
-      (comment
       (fn [E]
         (let [[else E] ((&A else) E)
-              E0 (-> E
-                     (assoc-in [:capturing :vars] nil)
-                     (update-in [:capturing :effects] #(merge % {:return true, :loop true}))
-                     (assoc-in [:continuations] {:break {}, :continue {}}))
-              [body Eb1] ((&A body) E0)
-              [test Et1] ((&A test) E0)
-              varsk (capvars E)
-              varsb (mapmap use-maybe-repeat (capvars Eb1))
-              varst (mapmap use-repeat (capvars Et1))
-              varsbk (mapcombine use-both varsb varsk)
-              varstbk (mapcombine use-both varst varsbk)
-              E1 (-> E0
-                     (assoc-in [:capturing :vars] varstbk)
-                     (assoc-in [:continuations] {:break varsk, :continue varstbk}))
-              [body Eb*] ((&A body) E1)
-              E2 (assoc-in E [:capturing :vars] (mapcombine use-either (capvars Eb*) varsbk))
-              [test E3] ((&A test) E2)
-              E4 (assoc-in E [:capturing :vars] (capvars E3))]
-          ((&r [:if test body else]) E4)))
+              E0 {:vars nil, :continuations nil,
+                  :effects (merge (:effects E) {:return :linear, :break :linear, :continue :linear})}
+              [body Eb] ((&A body) (assoc-in E0 [:continuations :continue] :linear))
+              [test Et] ((&A test) (env-either Eb (assoc-in E0 [:continuations :break] :linear)))
+              bmul (get-in Et [:continuations :break])
+              cmul (get-in Et [:continuations :continue])
+              varsk (get E :vars)
+              varst (get Et :vars)
+              varsb (get Eb :vars)
+              varsb* (mapcombine use-both
+                                 (mapmap (use-multiplier bmul) varsk)
+                                 (if cmul (mapcombine #(use-repeat (use-both %1 (use-* cmul %2)))
+                                                      varsb varst)
+                                     varsb))
+              varst+ (mapcombine use-both varst (mapcombine use-either varsk varsb*))
+              E1 (assoc-in E [:vars] varst+)]
+          ((&r [:if test body else]) E1)))
       [[h :guard #{:yield :yield-from} a]] (&let [a (&A a) * (&r [h a])])
       [[:argument id type default]]
+      (comment
       ;; handles argument in the *outer* scope where the function is defined,
       ;; *NOT* in the inner scope that the function defines (see :function for that)
       (&let [default (&A default) type (&A type) * (&r [:argument id type default])])
@@ -117,10 +123,11 @@ Problem: effects to the end of the branch vs all effects including beyond the cu
              args (&Aargs args)]
             (let [[body innerE] ((&A body) nil)]
               (&r [:function args return-type body])))
+      ;; TODO: handle the things below properly
       [[:unwind-protect body protection]]
       (&let [[protection Ep] ((&A protection) nil)
              [body Eb] (&A body nil) ;; TODO: the very first thing in body isn't optional
-             ;; _ (&update-in [:capturing] #())
+             ;; _ (&update-in [:capturing] nil)
              * (&r [:unwind-protect body protection])])
       [[:handler-bind body handler]]
       (&let [handler (&A handler use)

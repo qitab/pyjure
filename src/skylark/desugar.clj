@@ -24,11 +24,16 @@
 ;; * multibranch if is replaced by two-branch ifs.
 ;; * boolean operations are expanded into simple ifs
 ;; * nested suites are merged; pass is eliminated
+;;
 ;; Not yet(?):
-;; ? with: is also expressed using higher-order functions? ==> not yet, due to assignments?
 ;; ? binary and unary operations are expanded into calls to primitive functions.
 ;; ? mutual recursion within sub defs??? We want mutually recursive letfn, not let (fn ...) !!!
 ;; ? A module is not just a suite, after all: global bindings are happening!
+;; ? maintain context attributes to functions into which decorators may store information,
+;;   to e.g. enable yield continuations, rule definition side-effects, etc.
+;; ? in a normal def context, group consecutive function definitions in a letfn;
+;;   defer non-macro decorator expansion after that. In a module or class context,
+;;   that's different. Ouch.
 
 
 ;; A macro-environment maps lists of symbols (as in dotted names) to macros
@@ -171,7 +176,8 @@
              ':True ':False ':None ':Ellipsis
              ':zero-uple ':empty-list ':empty-dict) & _]] (&return (v :constant x))
       [[(:or ':expression ':interactive) x]] (&desugar x)
-      [[(:or ':module ':pass) & xs]] (&desugar (w :suite xs))
+      [[':pass]] (&desugar (v :None)) ;; distinguish from an empty :suite, so it can break letfn
+      [[':module & xs]] (&desugar (w :suite xs)) ;; TODO: NOPE, make it special
       ;; :builtin is for recursively desugared code.
       ;; :lt :gt :eq :ge :le :ne :in :is :not-in :is_not are transformed into builtin's as well.
       [[(:or ':builtin ':binop ':unaryop ':handler-bind) op & args]] ;; handler-bind has a var name, not op
