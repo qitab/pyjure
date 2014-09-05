@@ -281,3 +281,35 @@ return a
 * Q: what does python3 do of a global or nonlocal declaration at toplevel?
   nonlocal is an error, global is ignored (or inherited?)
 
+* We probably want dynamic scoping for some variables.
+ To know about dynamic scoping in plain python:
+   http://stackoverflow.com/questions/2001138/how-to-create-dynamical-scoped-variables-in-python
+ See the solution that goes as follows:
+   with env.let(bufsize=8192, encoding="ascii"):
+    print env.bufsize  # prints 8192
+    a()  # call a function that uses env.bufsize or env.encoding
+ And is implemented in python by:
+_stack = []
+
+class _EnvBlock(object):
+    def __init__(self, kwargs):
+        self.kwargs = kwargs
+    def __enter__(self):
+        _stack.append(self.kwargs)
+    def __exit__(self, t, v, tb):
+        _stack.pop()
+
+class _Env(object):
+    def __getattr__(self, name):
+        for scope in reversed(_stack):
+            if name in scope:
+                return scope[name]
+        raise AttributeError("no such variable in environment")
+    def let(self, **kwargs):
+        return _EnvBlock(kwargs)
+    def __setattr__(self, name, value):
+        raise AttributeError("env variables can only be set using `with env.let()`")
+
+env = _Env()
+* We want to track which unshadowed bindings of such variables were
+   used, though, and include them in the cache signature.

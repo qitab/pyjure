@@ -1,5 +1,6 @@
 (ns skylark.continuation-analysis
   (:use [clojure.core.match :only [match]]
+        [skylark.debug :exclude [analyze-continuations]]
         [skylark.utilities]
         [skylark.parsing]
         [skylark.runtime]))
@@ -67,7 +68,7 @@ Problem: effects to the end of the branch vs all effects including beyond the cu
 
 (defn &A [x]
   ;; NB: reverse order matters in listing effect capturing
-  (letfn [(&r [a] (fn [E] (with-meta a (assoc (meta x) :capturing E))))
+  (letfn [(&r [a] (fn [E] [(with-meta a (assoc (meta x) :capturing E)) E]))
           (&v [h & as] (&bind (&A* as) #(&r (into h %))))]
     (match [x]
       [nil] &nil
@@ -76,6 +77,7 @@ Problem: effects to the end of the branch vs all effects including beyond the cu
                                        a (&A a)
                                        * (&r [:bind n a])])
       [[:unbind [:id s]]] (&do (&assoc-in [:vars s] false) (&r x))
+      [[:constant c]] (&r x)
       [[:builtin f & a]] (&let [a (&A* a) * (&r (vec* :builtin f a))])
       [[:call f a]] (&let [a (&Aargs a) f (&A f) * (&r [:call f a])])
       [[:suite & a]] (&let [a (&A* a) * (&r (vec* :suite a))])
@@ -113,16 +115,15 @@ Problem: effects to the end of the branch vs all effects including beyond the cu
           ((&r [:if test body else]) E1)))
       [[h :guard #{:yield :yield-from} a]] (&let [a (&A a) * (&r [h a])])
       [[:argument id type default]]
-      (comment
       ;; handles argument in the *outer* scope where the function is defined,
       ;; *NOT* in the inner scope that the function defines (see :function for that)
       (&let [default (&A default) type (&A type) * (&r [:argument id type default])])
       [[(:or ':from ':import ':constant ':break ':continue) & _]] (&r x)
       [[:function args return-type body]]
       (&let [return-type (&A return-type) ; handle type and default
-             args (&Aargs args)]
-            (let [[body innerE] ((&A body) nil)]
-              (&r [:function args return-type body])))
+             args (&Aargs args)
+             * (let [[body innerE] ((&A body) nil)]
+                 (&r [:function args return-type body]))])
       ;; TODO: handle the things below properly
       [[:unwind-protect body protection]]
       (&let [[protection Ep] ((&A protection) nil)
@@ -139,8 +140,8 @@ Problem: effects to the end of the branch vs all effects including beyond the cu
             (let [[body innerE] ((&A body) nil)]
               (if (:generator? innerE)
                 ($syntax-error x "invalid yield in class %a" [:name] {:name s})
-                (&r (check-effects x innerE false) :class name args body))))
-      :else ($syntax-error x "unexpected expression %s during continuation analysis pass")))))
+                (&r [:class name args body]))))
+      :else ($syntax-error x "unexpected expression %s during continuation analysis pass"))))
 
 (defn analyze-continuations [[x E]]
-  ((&A x) E))
+  ((&A x) nil))

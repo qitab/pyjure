@@ -1,5 +1,6 @@
 (ns skylark.cleanup
   (:use [clojure.core.match :only [match]]
+        [skylark.debug :exclude [cleanup]]
         [skylark.utilities]))
 
 ;; TODO? maintain a lexical environment, resolve bindings,
