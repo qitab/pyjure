@@ -10,4 +10,4 @@
 (reexport-macro clojure.tools.trace trace untrace)
 
 (reexport-deferred skylark.core
-  skylark to-reader position-stream lex parser desugar clarify cleanup analyze-continuations clojurify)
+  skylark to-reader position-stream lex parse desugar clarify cleanup analyze-continuations clojurify)

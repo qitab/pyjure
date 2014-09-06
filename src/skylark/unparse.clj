@@ -42,7 +42,7 @@
                                (&return x))
        (:attribute) (let [[x [_ s :as n]] as]
                       (&let [x (&desugar x)]
-                            (w :builtin :attribute x (copy-source-info [:string s] n))))
+                            (w :builtin :attribute x (copy-source-info n [:string s]))))
        (:raise :while :break :continue :if) (&let [s (&desugar* as)] (v tag s))
        (:compare) (&desugar (expand-compare as x))
        (:cond) (&desugar (expand-cond as))

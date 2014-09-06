@@ -1,5 +1,6 @@
 (ns skylark.desugar
-  (:use [skylark.utilities]
+  (:use [skylark.debug :exclude [desugar]]
+        [skylark.utilities]
         [skylark.parsing]
         [clojure.core.match :only [match]]))
 
@@ -51,7 +52,7 @@
 
 (defn unnamify [n x]
   {:pre (name? n)}
-  (letfn [(v [& args] (copy-source-info (vec args) x))]
+  (letfn [(v [& args] (copy-source-info x (vec args)))]
     (if (<= 2 (count n))
       (v :attribute (unnamify (pop n) x) (v :id (last n)))
       (v :id (first n)))))
@@ -80,7 +81,7 @@
 (defn constint [n] [:constant [:integer (+ 0N n)]])
 
 (defn expand-target [x right kind i]
-  (letfn [(c [x] (copy-source-info x i))
+  (letfn [(c [x] (copy-source-info i x))
           (v [& args] (c (vec args)))
           (D [x right]
             (if-let [[h & as] (and (vector? x) x)]
@@ -129,18 +130,18 @@
     (D x right)))
 
 (defn expand-compare [left ops args x]
-  (letfn [(i [a] (copy-source-info a x))
+  (letfn [(i [a] (copy-source-info x a))
           (v [& args] (i (vec args)))]
     (if-let [[[op] & moreops] ops]
       (let [[arg & moreargs] args
             [right init] (if moreops (with-gensyms [g] [g [(v :bind g arg)]]) [arg nil])]
-        (i `[:suite ~@init ~(v :if (merge-source-info [:builtin op left right] left right)
+        (i `[:suite ~@init ~(v :if (merge-source-info left right [:builtin op left right])
                                (expand-compare right moreops moreargs x)
                                (v :constant (v :False)))]))
       (v :constant (v :True)))))
 
 (defn expand-cond [clauses else x]
-  (letfn [(v [& a] (copy-source-info (vec a) x))]
+  (letfn [(v [& a] (copy-source-info x (vec a)))]
     (if-let [[[test iftrue] & moreclauses] clauses]
       (v :if (v :builtin :truthy test) iftrue (expand-cond moreclauses else x))
       (or else (v :constant (v :None))))))
@@ -150,8 +151,8 @@
         name (second x)]
     (if (seq decorators)
       (let [[_ deco dargs :as d] (last decorators)
-            simpler (copy-source-info (conj (pop x) (pop decorators)) x)]
-        (letfn [(v [& a] (copy-source-info (vec a) d))]
+            simpler (copy-source-info x (conj (pop x) (pop decorators)))]
+        (letfn [(v [& a] (copy-source-info d (vec a)))]
           (&let [f (&decorator-macro deco)
                  * (if f (&bind (f dargs simpler) &desugar)
                        (&desugar
@@ -163,7 +164,7 @@
       (base))))
 
 (defn &desugar [x]
-  (letfn [(i [f] (copy-source-info f x))
+  (letfn [(i [f] (copy-source-info x f))
           (v [& s] (i (vec s)))
           (w [& s] (i (apply vec* s)))]
     (match [x]
@@ -212,7 +213,7 @@
       [[':attribute expr [:id s] :as n]]
       (&let [x (&desugar expr)]
             (v :builtin :attribute x
-               (letfn [(c [& x] (copy-source-info (vec x) n))]
+               (letfn [(c [& x] (copy-source-info n (vec x)))]
                  (c :constant (c :string s)))))
       [[':compare left ops args]] (&desugar (expand-compare left ops args x))
       [[':cond clauses else]] (&desugar (expand-cond clauses else x))
@@ -235,11 +236,12 @@
           (v :function [[] nil [] nil] nil
              (reduce (fn [statement comp]
                        (copy-source-info
+                        comp
                         (match [comp]
                                [[':comp-for target generator]] [:for target generator statement nil]
                                [[':comp-if test]] [:if-expr test statement nil]
                                :else ($syntax-error x "Not a valid comprehension %s"
-                                                    [:expr :comp] {:expr x :comp comp})) comp))
+                                                    [:expr :comp] {:expr x :comp comp}))))
                      (v :yield expr) gen))))
       [[':try body excepts else finally]]
       (&desugar
@@ -257,7 +259,7 @@
                            body
                            (v :cond
                               (vec (map (fn [[_ type target body :as xx]]
-                                          (letfn [(vv [& a] (copy-source-info (vec a) xx))]
+                                          (letfn [(vv [& a] (copy-source-info xx (vec a)))]
                                             [(vv :builtin :isinstance type ex)
                                              (vv :unwind-protect
                                                  (vv :suite
@@ -296,7 +298,7 @@
         [] (&desugar body)
         [[ctxmgr target] & more]
         (let [simpler (v :with more body)]
-          (letfn [(c [& a] (copy-source-info (vec a) ctxmgr))]
+          (letfn [(c [& a] (copy-source-info ctxmgr (vec a)))]
             (&let [f (&with-macro ctxmgr)
                    * (if f (&bind (f simpler) &desugar)
                          (with-gensyms [mgr exception-type exception traceback]

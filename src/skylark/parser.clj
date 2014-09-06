@@ -99,8 +99,7 @@
 (defn &unary-op-expr [opmap m]
   (&leti [l (&list (&type-if opmap)) x m]
          (reduce (fn [x [op :as o]]
-                   (with-source-info [:unaryop (opmap op) x]
-                     (merge-info (source-info o) (source-info x))))
+                   (merge-source-info o x [:unaryop (opmap op) x]))
                  x (reverse l))))
 
 (defn merge-strings [ss]
@@ -109,20 +108,17 @@
         i1 (source-info fs)]
     (loop [sl (list s1) i2 i1 r rs]
       (if (empty? r)
-        (with-source-info [b ((if (= b :bytes) join-bytes str/join) (reverse sl))] (merge-info i1 i2))
+        (with-source-info (merge-info i1 i2)
+          [b ((if (= b :bytes) join-bytes str/join) (reverse sl))])
         (let [[[b2 s2 i2] r2] r]
           (assert (= b b2))
           (recur (cons s2 sl) i2 r2))))))
 
 (defn binop [left more]
-  (reduce (fn [a [op b]]
-            (with-source-info [:binop (first op) a b]
-              (merge-info (source-info a) (source-info b))))
-          left more))
+  (reduce (fn [a [op b]] (merge-source-info a b [:binop (first op) a b])) left more))
 
 (defn binop* [op]
-  #(reduce (fn [a b] (with-source-info [:binop op a b]
-                       (merge-info (source-info a) (source-info b)))) %))
+  #(reduce (fn [a b] (merge-source-info a b [:binop op a b])) %))
 
 
 
@@ -206,9 +202,7 @@
                           (&tag :attribute (&do &dot &name)))))
 (def &atom-trailer
   (&let [a &atom t (&list &trailer)]
-        (reduce (fn [x [tag & args :as o]]
-                  (with-source-info (vec* tag x args)
-                    (merge-info (source-info x) (source-info o))))
+        (reduce (fn [x [tag & args :as o]] (merge-source-info x o (vec* tag x args)))
                 a t)))
 (def &power (&mod-expr &atom-trailer (&do (&type :pow) &factor) #(vector :binop :pow % %2)))
 (def &factor (&unary-op-expr {:add :pos, :sub :neg, :invert :invert} &power))
@@ -353,7 +347,7 @@
 (def &definition
   (&let [decorators (&list &decorator)
          definition (&info (&or &class-definition &function-definition))]
-        (copy-source-info (conj definition (vec decorators)) definition)))
+        (copy-source-info definition (conj definition (vec decorators)))))
 
 (def &compound-statement
   (&or &if-statement &while-statement &for-statement &try-statement &with-statement &definition))

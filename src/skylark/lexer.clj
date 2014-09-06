@@ -87,7 +87,7 @@
   (fn [{out :out [top :as is] :indent-stack :as σ}]
     (let [pos (position σ)
           info [(:file σ) pos pos]
-          tok+ #(conj % (with-source-info [%2] info))]
+          tok+ #(conj % (with-source-info info [%2]))]
       (if (> column top)
         [nil (assoc σ :out (tok+ out :indent) :indent-stack (conj is column))]
         (loop [[top & ris :as nis] is
@@ -306,13 +306,13 @@
                  (&indent column)
                  (&repeat (&do &token &whitespace))
                  &comment-eol
-                 (&bind &prev-info #(&emit (with-source-info [:newline] %)))))]
+                 (&bind &prev-info #(&emit (with-source-info % [:newline])))))]
     nil))
 
 (defn &finish [{out :out is :indent-stack :as σ}]
   (let [pos (position σ)
         info [(:file σ) pos pos]
-        tok+ #(conj % (with-source-info [%2] info))]
+        tok+ #(conj % (with-source-info info [%2]))]
     (loop [[top & ris] is
            out out]
       (if (> top 1) (recur ris (tok+ out :dedent))

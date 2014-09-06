@@ -31,23 +31,25 @@
              (:integer :string :bytes) (second x)
              (builtin-id x)) E]))
 
+(defn &Csuite [x]
+  (match x
+    [[:bind [:id s] :as n a] & r]
+    (&let [a (&C a) r (&Csuite r)]
+          (copy-source-info n `(~'let [~(local-id s) ~a] ~r)))
+    [[:unbind [:id s] :as n] & r]
+    (&let [r (&Csuite r)]
+          (copy-source-info n `(~'let [~(local-id s) nil] ~r)))
+    [] (&C [:constant [:None]])
+    [a] (&C a)
+    [a b & r] (&let [a (&C a) r (&Csuite (cons b r))] `(do ~a r))))
+
 (defn &C [x]
-  (let [mx (meta x)]
-    (letfn [(m [a] (if (or (symbol? a) (list? a) (vector? a)) (with-meta a mx) a))
-            (m* [& a] (m a))
-            (M [n a] (with-meta a (merge mx n)))
-            (&r [x] (&return (m x)))
-            (&k [k r] (&let [r (&C r)] (m `(~@k ~r))))]
+  (letfn [(m [a] (copy-source-info x a))
+          (&r [x] (&return (m x)))]
       (match [x]
         [nil] &nil
         [[:id s]] (&bind (&resolve-id s) &r)
-        [[:suite [:bind [:id s] :as n a] & r]]
-        (&let [a (&C a) * (&k `(~'let [~(local-id s) ~a]) (vec* :suite r))])
-        [[:suite [:unbind [:id s] :as n] & r]]
-        (&k `(~'let [~s nil]) (vec* :suite r))
-        [[:suite]] (&C [:constant [:None]])
-        [[:suite a]] (&C a)
-        [[:suite a b & r]] (&let [a (&C a) * (&k `(do ~a) (vec* :suite b r))])
+        [[:suite & as]] (&Csuite as)
         [[:bind [:id s] :as n a]] (&C a) ;; no suite to consume the binding
         [[:unbind [:id s]]] &nil
         [[:constant c]] (&resolve-constant c)
@@ -88,7 +90,7 @@
                     (M (check-effects x innerE true)
                        :function args return-type body))))
         :else)
-        ($syntax-error x "unexpected expression %s during clarification pass"))))))
+        ($syntax-error x "unexpected expression %s during clarification pass")))))
 
 (defn &C* [xs] (&map &C xs))
 (def &Cargs (&args &C))

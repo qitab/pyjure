@@ -133,9 +133,13 @@
 (defn source-info [x]
   ;; {:post [(or (info? %) (DBG :bsi x %))]}
   (:source-info (meta x)))
-(defn with-source-info [x i]
-  (and x (let [m (meta x)] (if (:source-info m) x (with-meta x (merge m {:source-info i}))))))
-(defn copy-source-info [x y] (with-source-info x (source-info y)))
+(defn with-source-info [i x]
+  (if (instance? clojure.lang.IObj x)
+    (let [m (meta x)]
+      (if (:source-info m) x ;; don't overwrite existing information
+          (with-meta x (merge m {:source-info i}))))
+    x)) ;; no source-info for objects without meta-information
+(defn copy-source-info [source destination] (with-source-info (source-info source) destination))
 
 (defn merge-info [x y]
   ;;{:pre [(info? x) (info? y) (or (nil? x) (nil? y) (= (first x) (first y)))]
@@ -144,14 +148,14 @@
         (nil? y) x
         :else (let [[file start-pos _] x [_ _ end-pos] y] [file start-pos end-pos])))
 
-(defn merge-source-info [a x y]
-  (with-source-info a (merge-info (source-info x) (source-info y))))
+(defn merge-source-info [x y a]
+  (with-source-info (merge-info (source-info x) (source-info y)) a))
 
 (defn &info [m]
   (&let [start &next-info
          value m
          end &prev-info]
-        (with-source-info value (merge-info start end))))
+        (with-source-info (merge-info start end) value)))
 (defmacro &leti [bindings value] `(&info (&let ~bindings ~value)))
 
 ;; In a grammar with mutual recursion between non-terminals,
