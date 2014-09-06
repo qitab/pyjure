@@ -10,5 +10,5 @@
 (deftest clarification-test
   (testing "Every python function scope clarification"
     (let [x (sky/desugar python-test)
-          [y E] (clarify x)]
+          y (clarify x)]
       (is (= x y)))))

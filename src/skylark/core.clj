@@ -1,3 +1,4 @@
+;; skylark.core: this file just combines together all the compilation passes.
 (ns skylark.core
   (:use [clojure.tools.trace]
         ;;[clojure.tools.nrepl]
@@ -14,8 +15,6 @@
             [skylark.continuation-analysis :as continuation-analysis]
             [skylark.clojurifier :as clojurifier]))
 
-;; TODO: this file should just combine together all the passes.
-;; TODO: interleave evaluation and macro-expansion?
 
 (def passes
   [;; * → [reader:java.io.Reader filename:String]
@@ -43,8 +42,10 @@
    ;; some invalid forms filtered, etc. Insert vars for later type analysis.
    :cleanup #'cleanup/cleanup
 
-   ;; → AST3: control flow via 0CFA (?)
+   ;; → AST3: analyze liveness of variables and effects captured in each statement's continuation.
    :analyze-continuations #'continuation-analysis/analyze-continuations
+
+   ;; control flow via 0CFA (?)
 
    ;; → converting to clojure code, executable with skylark.runtime
    :clojurify #'clojurifier/C

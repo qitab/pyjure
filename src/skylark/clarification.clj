@@ -12,6 +12,7 @@
 ;; * detect which functions are generators
 ;;  (a yield statement taints the function even if it's going to be optimized away later)
 
+;; * TODO distinguish module, class and def contexts, and only allow yield and return in def context.
 ;; * TODO? if we allow for lexical macros, these passes must be merged.
 ;; * TODO? detect other syntactically present side-effects in the function
 ;;  (e.g. skylark rule definition, incremental class definition, etc.)
@@ -116,4 +117,4 @@
 (defn clarify [x]
   (let [[x E] ((&C x) nil)]
     (check-effects x E false)
-    [x E]))
+    x))

@@ -1,16 +1,12 @@
 (ns skylark.clojurifier
   (:use [clojure.core.match :only [match]]
+        [skylark.debug :exclude [clojurify]]
         [skylark.utilities]
+        [skylark.parsing]
         [skylark.runtime]))
 
-;; We map Python list to Clojure vector for fast-ish append,
-;; Python tuple to Clojure list,
-;; Python dict to Clojure map, Python set to Clojure set.
-
-;; Just like macropy, we have three kinds of macros:
-;; expr-macro, block-macro and decorator-macro.
-;; However, we pass our kind of ASTs, not theirs.
-
+;; TODO? have a previous pass transform everything in A-normal form,
+;; where all arguments to functions are trivial (constant, function, variable)?
 ;; TODO: transform every branch point into binding-passing style?
 
 (declare C create-binding)
@@ -20,45 +16,86 @@
 ;; local: map of names to getters, or nil if level is 0
 ;; outer: the next outer non-global environment, or nil if only global is next
 ;; global: the global environment
-;; yield?: has yield appeared at this scope level? if yes, we'll have to transform the def.
 
+(declare &C &C* &Cargs)
 
-(def null-env (->Environment {} {} {} {}))
+(def reserved-ids ;; otherwise valid identifiers that need be escaped
+  #{"def" "if" "let" "do" "quote" "var" "fn" "loop" "recur" "throw" "try" "monitor-enter"
+    "new"}) ;; also set! . &
 
-(defn symbol-getter [class name] (NFN))
+(defn local-id [x] (symbol (if (reserved-ids x) (str "%" x) x)))
+(defn &resolve-id [x] (fn [E] [(local-id x) E])) ;; TODO: distinguish global from local
+(defn builtin-id [x] (symbol (str "$" (name x))))
+(defn &resolve-constant [x]
+  (fn [E] [(case (first x)
+             (:integer :string :bytes) (second x)
+             (builtin-id x)) E]))
 
+(defn &C [x]
+  (let [mx (meta x)]
+    (letfn [(m [a] (if (or (symbol? a) (list? a) (vector? a)) (with-meta a mx) a))
+            (m* [& a] (m a))
+            (M [n a] (with-meta a (merge mx n)))
+            (&r [x] (&return (m x)))
+            (&k [k r] (&let [r (&C r)] (m `(~@k ~r))))]
+      (match [x]
+        [nil] &nil
+        [[:id s]] (&bind (&resolve-id s) &r)
+        [[:suite [:bind [:id s] :as n a] & r]]
+        (&let [a (&C a) * (&k `(~'let [~(local-id s) ~a]) (vec* :suite r))])
+        [[:suite [:unbind [:id s] :as n] & r]]
+        (&k `(~'let [~s nil]) (vec* :suite r))
+        [[:suite]] (&C [:constant [:None]])
+        [[:suite a]] (&C a)
+        [[:suite a b & r]] (&let [a (&C a) * (&k `(do ~a) (vec* :suite b r))])
+        [[:bind [:id s] :as n a]] (&C a) ;; no suite to consume the binding
+        [[:unbind [:id s]]] &nil
+        [[:constant c]] (&resolve-constant c)
+        [[:builtin b & as]]
+        (&let [as (&C* as)] (m `(~(builtin-id b) ~@as)))
+        :else (do (comment
+        [[:unwind-protect body protection]]
+        (&m (&tag :unwind-protect (&C body) (&C protection)))
+        [[:handler-bind body handler]] (&m (&tag :handler-bind (&C body) (&C handler)))
+        [[:builtin f & a]] (&let [a (&C* a)] (w :builtin f a))
+        [[(:or ':from ':import ':constant ':break ':continue) & _]] (&x)
+        [[h :guard #{:suite :return :raise :while :if} & a]] (&m (&tag* h (&C* a)))
+        [[h :guard #{:yield :yield-from} a]]
+        (&do (&assoc-in [:generator?] true) (&m (&tag h (&C a))))
+        [[:handler-bind [:id s] :as target body handler]]
+        (&let [type (&C type)
+               _ (&assoc-in [:vars s :bound?] true)
+               body (&C body)]
+              (v :except type target body))
+        [[:call f a]] (&m (&tag :call (&C f) (&Cargs a)))
+        [[:class [:id s] :as name args body]]
+        (&m (&let [args (&Cargs args)
+                   _ (&assoc-in [:vars s :bound?] true)]
+                  (let [[body innerE] ((&C body) nil)]
+                    (if (:generator? innerE)
+                      ($syntax-error x "invalid yield in class %a" [:name] {:name s})
+                      (M (check-effects x innerE false) :class name args body)))))
+        [[:argument id type default]]
+        ;; handles argument in the *outer* scope where the function is defined,
+        ;; *NOT* in the inner scope that the function defines (see :function for that)
+        (&m (&into [:argument id] (&C type) (&C default)))
+        [[:function args return-type body]]
+        (&m (&let [args (&Cargs args) ; handle type and default
+                   return-type (&C return-type)]
+                  (let [[_ innerE] ((&map #(&assoc-in [:vars %] {:bound? true :locality :param})
+                                          (args-vars args)) nil)
+                        [body innerE] ((&C body) innerE)]
+                    (M (check-effects x innerE true)
+                       :function args return-type body))))
+        :else)
+        ($syntax-error x "unexpected expression %s during clarification pass"))))))
 
-(declare C Cassign)
+(defn &C* [xs] (&map &C xs))
+(def &Cargs (&args &C))
 
-(defn C* [head xs E] (thread-args head C xs E))
-
-(defn C
-  ([x] (C x null-env))
-  ([x E]
-     (match [x]
-       [([h & _] :seq)]
-       (<- (if (symbol? h)
-             (if-let [[getter found?] (symbol-getter h E)]
-               [getter E]
-               (let [newE (create-binding h E)]
-                 [(first (symbol-getter h newE)) newE])))
-           (if (#{:identity :Expression :Interactive} h) (C x E))
-           (if-let [v ({:Module 'do :progn 'do} h)] (C* v (rest x) E))
-           (if (#{:and :or
-                  :add :sub :mul :div :floordiv :mod :lshift :rshift
-                  :and_ :or_ :xor :pow
-                  :not :pos :neg :invert
-                  :lt :gt :eq :ge :le :ne :in :is :not-in :is_not ;; magic
-                  :assert :pass} h) (C* (runtime-symbol h) (rest x) E))
-           ($syntax-error))
-       [x :guard literal?] [x E] ;; :integer :float :string :bytes
-       [:True] [$True E]
-       [:False] [$False E]
-       [:None] [$None E]
-       [:zero-uple] [$empty-tuple E]
-       [:empty-list] [$empty-list E]
-       [:empty-dict] [$empty-dict E]
-       :else ($syntax-error))))
+(defn clojurify [x]
+  (let [[x E] ((&C x) nil)]
+    x))
 
 (comment
   "

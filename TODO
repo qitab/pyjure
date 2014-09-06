@@ -313,3 +313,6 @@ class _Env(object):
 env = _Env()
 * We want to track which unshadowed bindings of such variables were
    used, though, and include them in the cache signature.
+
+* At some point, deal with at least the easy case of
+   https://docs.python.org/3.5/reference/import.html

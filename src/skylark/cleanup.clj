@@ -54,5 +54,5 @@
           ($syntax-error x "unexpected expression %s during cleanup pass"))))))
 
 
-(defn cleanup [[x E]]
-  [(c x) E])
+(defn cleanup [x]
+  (c x))

@@ -90,7 +90,8 @@ Problem: effects to the end of the branch vs all effects including beyond the cu
                            (assoc-in [:effects :return] :linear))
                     [body Eb] ((&A body) E')
                     [else Ee] ((&A else) E')
-                    E'' (env-either Eb Ee)
+                    E'' (assoc-in (env-both (env-either Eb Ee) E)
+                                  [:effects :return] (get-in E [:effects :return]))
                     [test E'''] ((&A test) E'')]
                 ((&r [:if test body else]) E''')))
       [[:while test body else]]
@@ -143,5 +144,5 @@ Problem: effects to the end of the branch vs all effects including beyond the cu
                 (&r [:class name args body]))))
       :else ($syntax-error x "unexpected expression %s during continuation analysis pass"))))
 
-(defn analyze-continuations [[x E]]
-  ((&A x) nil))
+(defn analyze-continuations [x]
+  (first ((&A x) nil)))
