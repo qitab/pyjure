@@ -6,7 +6,9 @@
         [skylark.runtime]))
 
 (comment
-"TODO? rename this pass appropriately when it's done. liveness_analysis_1 ?
+"
+TODO remember for each expression whether the resulting value is used or not.
+TODO? rename this pass appropriately when it's done. liveness_analysis_1 ?
 TODO? treat tail positions specially? they mightn't need capture return / loop in the same way.
 TODO? head positions also are surefire, not maybe, in not needing to capture an earlier exception.
 
@@ -33,6 +35,7 @@ The analysis state is a map with keys being:
   :continue
   :yield
 :effects (map the following to FL value)
+  ??? :value (the continuation uses the value of this particular expression)
   :return (the continuation captures whether this part of the code returns),
   :raise (the continuation captures whether this part of the code raises exceptions),
   :break (we're in a loop, and the code may break)
@@ -50,8 +53,8 @@ Problem: effects to the end of the branch vs all effects including beyond the cu
 
 (defn env-combine [fun E E']
   (into {} (map #(do [% (mapcombine fun (% E) (% E'))]) [:vars :continuations :effects])))
-(defn env-either [E E'] (env-combine use-either E E'))
-(defn env-both [E E'] (env-combine use-both E E'))
+(defn env-either [E E'] (env-combine f-either E E'))
+(defn env-both [E E'] (env-combine f-both E E'))
 
 
 (declare &A &A* &Aargs)
@@ -66,13 +69,17 @@ Problem: effects to the end of the branch vs all effects including beyond the cu
           [(vec args) star-arg (vec more-args) kw-arg])
     &nil))
 
+;;(defn &use-value [E] [nil (assoc-in E [:effects :value] :linear)])
+;;(defn &ignore-value [E] [nil (assoc-in E [:effects :value] false)])
+;;(def value-env {:effects {:value :linear}})
+
 (defn &A [x]
   ;; NB: reverse order matters in listing effect capturing
   (letfn [(&r [a] (fn [E] [(with-meta a (assoc (meta x) :capturing E)) E]))
           (&v [h & as] (&bind (&A* as) #(&r (into h %))))]
     (match [x]
       [nil] &nil
-      [[:id s]] (&do (&update-in [:vars s] use-once-more) (&r x))
+      [[:id s]] (&do (&update-in [:vars s] f-once-more) (&r x))
       [[:bind [:id s] :as n a]] (&let [_ (&assoc-in [:vars s] false)
                                        a (&A a)
                                        * (&r [:bind n a])])
@@ -106,12 +113,12 @@ Problem: effects to the end of the branch vs all effects including beyond the cu
               varsk (get E :vars)
               varst (get Et :vars)
               varsb (get Eb :vars)
-              varsb* (mapcombine use-both
-                                 (mapmap (use-multiplier bmul) varsk)
-                                 (if cmul (mapcombine #(use-repeat (use-both %1 (use-* cmul %2)))
+              varsb* (mapcombine f-both
+                                 (mapmap (f-multiplier bmul) varsk)
+                                 (if cmul (mapcombine #(f-repeat (f-both %1 (f-* cmul %2)))
                                                       varsb varst)
                                      varsb))
-              varst+ (mapcombine use-both varst (mapcombine use-either varsk varsb*))
+              varst+ (mapcombine f-both varst (mapcombine f-either varsk varsb*))
               E1 (assoc-in E [:vars] varst+)]
           ((&r [:if test body else]) E1)))
       [[h :guard #{:yield :yield-from} a]] (&let [a (&A a) * (&r [h a])])
@@ -127,13 +134,14 @@ Problem: effects to the end of the branch vs all effects including beyond the cu
                  (&r [:function args return-type body]))])
       ;; TODO: handle the things below properly
       [[:unwind-protect body protection]]
-      (&let [[protection Ep] ((&A protection) nil)
-             [body Eb] (&A body nil) ;; TODO: the very first thing in body isn't optional
-             ;; _ (&update-in [:capturing] nil)
-             * (&r [:unwind-protect body protection])])
+      (let [[protection Ep] ((&A protection) nil)
+            [body Eb] (&A body nil) ;; TODO: the very first thing in body isn't optional
+            ;; _ (&update-in [:capturing] nil)
+            E' (env-both (assoc-in Ep [:effects :raise] nil) Eb)]
+        ((&r [:unwind-protect body protection]) E'))
       [[:handler-bind body handler]]
-      (&let [handler (&A handler use)
-             body (&A body (use-maybe use))] ;; TODO: the very first thing in body isn't optional
+      (&let [handler (&A handler nil)
+             body (&A body (f-maybe nil))] ;; TODO: the very first thing in body isn't optional
          (&r [:unwind-protect body handler]))
       [[:class [:id s] :as name args body]]
       (&let [args (&Aargs args)

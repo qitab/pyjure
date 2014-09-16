@@ -58,7 +58,7 @@
   (if (empty? seq) nil (let [x (first seq)] (if (pred x) x (recur pred (rest seq))))))
 (defmacro &let
   ([bindings]
-     `(&let ~bindings ;; return the last result that is not _ or a keyword
+     `(&let ~bindings ;; return the last result that is not _ or a keyword. Typically bind *.
             ~(find-if #(not (or (= % '_) (keyword? %))) (reverse (map first (partition 2 bindings))))))
   ([bindings result] ;; Same as `(clojure.algo.monads/domonad parsing-m ~bindings ~result)
      (if (empty? bindings)

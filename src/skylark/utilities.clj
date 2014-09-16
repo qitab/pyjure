@@ -157,72 +157,84 @@ The macro expansion has relatively low overhead in space or time."
 
 
 
-;;; FURAL logic for variables: true (unconstrained), :required, :affine, :linear, nil or false (unused)
+;;; FURAL logic for variables and effects:
+;;; (F) false or nil (unused), (U) true (unconstrained), (R) :required, (A) :affine, (L) :linear
+;;;
 
-(defn use-once-more [x]
+(defn f-falsable? [x]
+  (case x
+    (nil false :affine true) true
+    (:linear :required) false))
+
+(defn f-at-least-once [x]
+  (case x
+    (nil false :linear :affine) :linear
+    (:required true) :required))
+
+(defn f-once-more [x]
   (case x
     (nil false) :linear
     (:linear :affine :required true) :required))
 
-(defn use-maybe-once-more [x]
+(defn f-maybe-once-more [x]
   (case x
     (nil false) :affine
     (:linear :required) :required
     (:affine true) true))
 
-(defn use-many-more [x]
+(defn f-many-more [x]
   :required)
 
-(defn use-maybe-many-more [x]
+(defn f-maybe-many-more [x]
   (case x (:linear :required) :required true))
 
-(defn use-both [x y] ;; in a suite, use resource x times, then y times
+(defn f-both [x y] ;; in a suite, use resource x times, then y times
   (case x
    (nil false) y
-   (:linear) (use-once-more y)
-   (:affine) (use-maybe-once-more y)
+   (:linear) (f-once-more y)
+   (:affine) (f-maybe-once-more y)
    (:required) x
-   (true) (use-maybe-many-more y)))
+   (true) (f-maybe-many-more y)))
 
-(defn use-maybe [x] ;; may happen or not
+(defn f-maybe [x] ;; may happen or not
   (case x
     (nil false) false
     (:linear :affine) :affine
     (:required true) true))
 
-(defn use-either [x y] ;; in two branches, use resource x times or y times
+(defn f-either [x y] ;; in two branches, use resource x times or y times
   (cond
    (= x y) x
-   (not x) (use-maybe y)
-   (not y) (use-maybe x)
+   (not x) (f-maybe y)
+   (not y) (f-maybe x)
    (= x :linear) y ;; :affine, :required, true are the remaining choices for y
    (= y :linear) x
    :else true)) ;; either one is true, or one is :required and the other :affine
 
-(defn use-repeat [x] ;; repeat x many times
+(defn f-repeat [x] ;; repeat x many times
   (case x
     (nil false) false
     (:linear :required) :required
     (:affine true) true))
 
-(defn use-maybe-repeat [x] ;; repeat x zero, one or many times
+(defn f-maybe-repeat [x] ;; repeat x zero, one or many times
   (boolean x))
 
-(defn use-* [x y] ;; multiply occurrence x by occurrence y
+(defn f-* [x y] ;; multiply occurrence x by occurrence y
   (case x
     (nil false) false
     (:linear) y
-    (:affine) (use-maybe y)
-    (:required) (use-repeat y)
-    (true) (use-maybe-repeat y)))
+    (:affine) (f-maybe y)
+    (:required) (f-repeat y)
+    (true) (f-maybe-repeat y)))
 
-(defn use-multiplier [x] ;; curried variant of use-*
+(defn f-multiplier [x] ;; curried variant of f-*
   (case x
     (nil false) (fn [_] false)
     (:linear) (fn [y] y)
-    (:affine) use-maybe
-    (:required) use-repeat
-    (true) use-maybe-repeat))
+    (:affine) f-maybe
+    (:required) f-repeat
+    (true) f-maybe-repeat))
 
 
 ;;; Reexporting things from another namespace

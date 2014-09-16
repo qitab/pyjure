@@ -13,6 +13,7 @@
             [skylark.clarification :as clarification]
             [skylark.cleanup :as cleanup]
             [skylark.continuation-analysis :as continuation-analysis]
+            [skylark.effect-analysis :as effect-analysis]
             [skylark.clojurifier :as clojurifier]))
 
 
@@ -42,8 +43,11 @@
    ;; some invalid forms filtered, etc. Insert vars for later type analysis.
    :cleanup #'cleanup/cleanup
 
-   ;; → AST3: analyze liveness of variables and effects captured in each statement's continuation.
+   ;; → AST2.1: analyze liveness of variables and effects captured in each statement's continuation.
    :analyze-continuations #'continuation-analysis/analyze-continuations
+
+   ;; → AST2.2: analyze variables initialized and other effects in each statement's past
+   :analyze-effects #'effect-analysis/analyze-effects
 
    ;; control flow via 0CFA (?)
 

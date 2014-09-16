@@ -56,27 +56,7 @@
         [[:builtin b & as]]
         (&let [as (&C* as)] (m `(~(builtin-id b) ~@as)))
         :else (do (comment
-        [[:unwind-protect body protection]]
-        (&m (&tag :unwind-protect (&C body) (&C protection)))
-        [[:handler-bind body handler]] (&m (&tag :handler-bind (&C body) (&C handler)))
-        [[:builtin f & a]] (&let [a (&C* a)] (w :builtin f a))
-        [[(:or ':from ':import ':constant ':break ':continue) & _]] (&x)
-        [[h :guard #{:suite :return :raise :while :if} & a]] (&m (&tag* h (&C* a)))
-        [[h :guard #{:yield :yield-from} a]]
-        (&do (&assoc-in [:generator?] true) (&m (&tag h (&C a))))
-        [[:handler-bind [:id s] :as target body handler]]
-        (&let [type (&C type)
-               _ (&assoc-in [:vars s :bound?] true)
-               body (&C body)]
-              (v :except type target body))
         [[:call f a]] (&m (&tag :call (&C f) (&Cargs a)))
-        [[:class [:id s] :as name args body]]
-        (&m (&let [args (&Cargs args)
-                   _ (&assoc-in [:vars s :bound?] true)]
-                  (let [[body innerE] ((&C body) nil)]
-                    (if (:generator? innerE)
-                      ($syntax-error x "invalid yield in class %a" [:name] {:name s})
-                      (M (check-effects x innerE false) :class name args body)))))
         [[:argument id type default]]
         ;; handles argument in the *outer* scope where the function is defined,
         ;; *NOT* in the inner scope that the function defines (see :function for that)
@@ -89,6 +69,26 @@
                         [body innerE] ((&C body) innerE)]
                     (M (check-effects x innerE true)
                        :function args return-type body))))
+        [[':return a]] (&m (&tag* h (&C a)))
+        [[(:or ':from ':import ':break ':continue) & _]] (&x)
+        [[:unwind-protect body protection]]
+        (&m (&tag :unwind-protect (&C body) (&C protection)))
+        [[:handler-bind body handler]] (&m (&tag :handler-bind (&C body) (&C handler)))
+        [[h :guard #{:yield :yield-from} a]]
+        (&do (&assoc-in [:generator?] true) (&m (&tag h (&C a))))
+        [[h :guard #{:suite :raise :while :if} & a]] (&m (&tag* h (&C* a)))
+        [[:handler-bind [:id s] :as target body handler]]
+        (&let [type (&C type)
+               _ (&assoc-in [:vars s :bound?] true)
+               body (&C body)]
+              (v :except type target body))
+        [[:class [:id s] :as name args body]]
+        (&m (&let [args (&Cargs args)
+                   _ (&assoc-in [:vars s :bound?] true)]
+                  (let [[body innerE] ((&C body) nil)]
+                    (if (:generator? innerE)
+                      ($syntax-error x "invalid yield in class %a" [:name] {:name s})
+                      (M (check-effects x innerE false) :class name args body)))))
         :else)
         ($syntax-error x "unexpected expression %s during clarification pass")))))
 
