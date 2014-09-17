@@ -1,6 +1,7 @@
 (ns skylark.parser
   (:require [clojure.string :as str])
   (:use [clojure.core.match :only [match]]
+        [skylark.debug :exclude [parse]]
         [skylark.utilities]
         [skylark.parsing]))
 
@@ -43,8 +44,8 @@
 
 (defn &token [{[tok & rest] :in}] [tok (->ParserState rest (source-info tok))])
 (defn &type-if [pred]
-  (fn [{[[type _ info :as tok] & rest] :in :as σ}]
-    (if (pred type) [tok (->ParserState rest info)] (&fail σ))))
+  (fn [{[[type & _ :as tok] & rest] :in :as σ}]
+    (if (pred type) [tok (->ParserState rest (source-info tok))] (&fail σ))))
 (defn &type [t] (&type-if #(= % t)))
 
 
@@ -305,8 +306,8 @@
 (def &import-statement (&or &import-name &import-from))
 
 (def &small-statement
-  (&or &expr-statement &del-statement &pass-statement &flow-statement
-       &import-statement &global-statement &nonlocal-statement &assert-statement))
+  (&info (&or &expr-statement &del-statement &pass-statement &flow-statement
+              &import-statement &global-statement &nonlocal-statement &assert-statement)))
 
 (def &simple-statement
   (&leti [l (&non-empty-maybe-terminated-list &small-statement (&type :semicolon)) _ &newline]

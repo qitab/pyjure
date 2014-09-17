@@ -115,13 +115,6 @@
 
 ;;; Source information processing
 
-(defn &prev-info [σ]
-  ;;{:post [(or (info? (first %)) (DBG :bad-prev-info σ %))]}
-  [(prev-info σ) σ])
-(defn &next-info [σ]
-  ;;{:post [(or (info? (first %)) (DBG :bad-next-info σ %))]}
-  [(next-info σ) σ])
-
 (defn info? [x]
   (or (nil? x)
       (and (vector? x) (= 3 (count x))
@@ -150,6 +143,13 @@
 
 (defn merge-source-info [x y a]
   (with-source-info (merge-info (source-info x) (source-info y)) a))
+
+(defn &prev-info [σ]
+  ;;{:post [(or (info? (first %)) (DBG :bad-prev-info σ %))]}
+  [(prev-info σ) σ])
+(defn &next-info [σ]
+  ;;{:post [(or (info? (first %)) (DBG :bad-next-info σ %))]}
+  [(next-info σ) σ])
 
 (defn &info [m]
   (&let [start &next-info
