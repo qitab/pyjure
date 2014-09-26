@@ -35,6 +35,7 @@
 ;; ? in a normal def context, group consecutive function definitions in a letfn;
 ;;   defer non-macro decorator expansion after that. In a module or class context,
 ;;   that's different. Ouch.
+;; ? d[k] = v ===> d += {k:v}
 
 
 ;; A macro-environment maps lists of symbols (as in dotted names) to macros

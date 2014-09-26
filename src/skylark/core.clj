@@ -52,7 +52,7 @@
    ;; control flow via 0CFA (?)
 
    ;; → converting to clojure code, executable with skylark.runtime
-   :clojurify #'clojurifier/C
+   :clojurify #'clojurifier/clojurify
   ])
 
 (defn skylark

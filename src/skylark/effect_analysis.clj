@@ -46,9 +46,9 @@ Problem: effects to the end of the branch vs all effects including beyond the cu
 (declare &A)
 
 (defn &A* [xs] (&map &A xs))
-(defn &Aargs [x] (&args &A x))
+(def &Aargs (&args &A))
 
-(defn reachable? [E] (:suite E))
+(defn reachable? [E] (get-in E [:effects :suite]))
 (defn &unreachable-afterwards [E] [nil {:vars nil :effects nil}])
 (defn with-effects [E x a] (with-meta a (assoc (meta x) :effecting E)))
 (defn &with-effects [x a] (fn [E] [(with-effects E x a) E]))
@@ -67,7 +67,7 @@ Problem: effects to the end of the branch vs all effects including beyond the cu
       (&do (&assoc-in [:var s] false) (&r x)) ;; after that, it's unbound
       [[:constant c]] (&r x)
       [[:builtin f & a]] (&let [a (&A* a) * (&r (vec* :builtin f a))])
-      [[:call f a]] (&let [a (&Aargs a) f (&A f) * (&r [:call f a])])
+      [[:call f a]] (&let [f (&A f) a (&Aargs a) * (&r [:call f a])])
       [[:suite & a]] (&let [a (&A* a) * (&r (vec* :suite a))])
       [[h :guard #{:return :raise} a]]
       (&let [a (&A a)
@@ -120,10 +120,10 @@ Problem: effects to the end of the branch vs all effects including beyond the cu
              _ (&assoc-in [:vars s :bound?] true)]
             (let [[body innerE] ((&A body) null-env)]
               (&r [:class name args body])))
-      :else ($syntax-error x "unexpected expression %s during continuation analysis pass"))))
+      :else ($syntax-error x "unexpected expression %s during effect analysis pass"))))
 
 (defn &A [x]
-  (fn [E] (if (:reachable E) ((&A1 x) E) [(with-effects E x x) E])))
+  (fn [E] (if (reachable? E) ((&A1 x) E) [(with-effects E x x) E])))
 
 (defn analyze-effects [x]
   (first ((&A x) null-env)))
