@@ -46,14 +46,16 @@
        ($syntax-error x "variable declared %s but was already declared %s"
                       [:locality :previous-locality] {:locality (name l) :previous-locality (name %)})))
 
-(defn check-effects [x E yield-allowed?]
+(defn check-effects [x E in-function?]
   (map (fn [[v e]]
          (let [{l :locality b :bound? r :referred?} e]
            (when (and ({:nonlocal :global} l) b)
              ($syntax-error x "invalid side-effect: trying to bind variable %s declared as %s"
                             [:name :locality] {:name v :locality l}))))
        (:vars E))
-  (when-not yield-allowed?
+  (when-not in-function?
+    (when (:return? E)
+      ($syntax-error x "invalid return"))
     (when (:generator? E)
       ($syntax-error x "invalid yield")))
   E)
@@ -78,7 +80,9 @@
         [[:handler-bind body handler]] (&m (&tag :handler-bind (&C body) (&C handler)))
         [[:builtin f & a]] (&let [a (&C* a)] (w :builtin f a))
         [[(:or ':from ':import ':constant ':break ':continue) & _]] (&x)
-        [[h :guard #{:suite :return :raise :while :if} & a]] (&m (&tag* h (&C* a)))
+        [[h :guard #{:suite :raise :while :if} & a]] (&m (&tag* h (&C* a)))
+        [[:return a]]
+        (&do (&assoc-in [:return?] true) (&m (&tag :return (&C a))))
         [[h :guard #{:yield :yield-from} a]]
         (&do (&assoc-in [:generator?] true) (&m (&tag h (&C a))))
         [[:handler-bind [:id s] :as target body handler]]
@@ -106,6 +110,7 @@
                         [body innerE] ((&C body) innerE)]
                     (M (check-effects x innerE true)
                        :function args return-type body))))
+        [[:module s]] (&m (&let [s (&C s)] [:module s]))
         ;; any remaining starred expression is a syntax error
         [[:starred & _]]
         ($syntax-error x "starred expressions are only allowed as targets to assignment %s")

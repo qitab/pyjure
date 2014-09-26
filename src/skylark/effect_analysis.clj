@@ -115,6 +115,7 @@ Problem: effects to the end of the branch vs all effects including beyond the cu
                     [handler Eh] (&A handler null-env) ;; TODO: the very first thing in body isn't optional
                     E' (env-map f-maybe (env-both Eb Eh))]
                 ((&r [:handler-bind body handler]) (env-then E E'))))
+      [[:module a]] (&let [a (&A a) * (&r [:module a])])
       [[:class [:id s] :as name args body]]
       (&let [args (&Aargs args)
              _ (&assoc-in [:vars s :bound?] true)]

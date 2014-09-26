@@ -50,6 +50,7 @@
                      (cond (empty? r) (v :None)
                            (empty? (rest r)) (first r)
                            :else (w :suite (reverse r))))
+          (:module) (w :module (c* s))
           (:nonlocal :global) (v :None) ; standalone statement not in a suite (!)
           ($syntax-error x "unexpected expression %s during cleanup pass"))))))
 

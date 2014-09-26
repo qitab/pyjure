@@ -89,6 +89,7 @@ Problem: effects to the end of the branch vs all effects including beyond the cu
         [[:builtin f & a]] (&let [a (&A* a) * (&r (vec* :builtin f a))])
         [[:call f a]] (&let [a (&Aargs a) f (&A f) * (&r [:call f a])])
         [[:suite & a]] (&let [a (&A* a) * (&r (vec* :suite a))])
+        [[:module a]] (&let [a (&A a) * (&r [:module a])])
         [[h :guard #{:return :raise} a]]
         (&let [_ (fn [E] [nil {:vars nil :continuations {h :linear} :effects (:effects E)}])
                a (&A a)

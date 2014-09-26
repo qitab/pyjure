@@ -73,6 +73,7 @@
         [[:builtin b & as]]
         (&let [as (&C* as)] (m `(~(builtin-id b) ~@as)))
         [[:call f a]] (&let [f (&C f) a (&Cargs a) * (&r `(~'$call ~f ~a))])
+        [[:module a]] (&C a) ;; TODO: handle update to global state
         :else (do (comment
         [[:argument id type default]]
         ;; handles argument in the *outer* scope where the function is defined,
@@ -86,7 +87,7 @@
                         [body innerE] ((&C body) innerE)]
                     (M (check-effects x innerE true)
                        :function args return-type body))))
-        [[':return a]] (&m (&tag* h (&C a)))
+        [[:return a]] (&m (&tag :return (&C a)))
         [[(:or ':from ':import ':break ':continue) & _]] (&x)
         [[:unwind-protect body protection]]
         (&m (&tag :unwind-protect (&C body) (&C protection)))
@@ -107,7 +108,7 @@
                       ($syntax-error x "invalid yield in class %a" [:name] {:name s})
                       (M (check-effects x innerE false) :class name args body)))))
         :else)
-        ($syntax-error x "unexpected expression %s during clarification pass"))) E))))
+        ($syntax-error x "unexpected expression %s during clojure generation pass"))) E))))
 
 (defn &C* [xs] (&map &C xs))
 (def &Cargs (&args &C))

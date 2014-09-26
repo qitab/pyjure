@@ -27,7 +27,6 @@
 ;; * nested suites are merged; pass is eliminated
 ;;
 ;; Not yet(?):
-;; ? binary and unary operations are expanded into calls to primitive functions.
 ;; ? mutual recursion within sub defs??? We want mutually recursive letfn, not let (fn ...) !!!
 ;; ? A module is not just a suite, after all: global bindings are happening!
 ;; ? maintain context attributes to functions into which decorators may store information,
@@ -36,6 +35,8 @@
 ;;   defer non-macro decorator expansion after that. In a module or class context,
 ;;   that's different. Ouch.
 ;; ? d[k] = v ===> d += {k:v}
+;; ? del d[k] ===> d = $dissoc(d, k)
+;; ? further pass: A-normal form: only use constants and variables as arguments, not more complex expressions
 
 
 ;; A macro-environment maps lists of symbols (as in dotted names) to macros
@@ -179,7 +180,8 @@
              ':zero-uple ':empty-list ':empty-dict) & _]] (&return (v :constant x))
       [[(:or ':expression ':interactive) x]] (&desugar x)
       [[':pass]] (&desugar (v :None)) ;; distinguish from an empty :suite, so it can break letfn
-      [[':module & xs]] (&desugar (w :suite xs)) ;; TODO: NOPE, make it special
+      [[':module & xs]] ;; keep it special, but delegate to suite
+      (&let [xs (&desugar* xs)] (v :module (w :suite xs)))
       ;; :builtin is for recursively desugared code.
       ;; :lt :gt :eq :ge :le :ne :in :is :not-in :is_not are transformed into builtin's as well.
       [[(:or ':builtin ':binop ':unaryop ':handler-bind) op & args]] ;; handler-bind has a var name, not op
