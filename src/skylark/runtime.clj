@@ -142,9 +142,9 @@
   [clojure.lang.BigInt clojure.lang.BigInt]
   (quot (- ^clojure.lang.BigInt x (mod ^clojure.lang.BigInt x ^clojure.lang.BigInt y))
         ^clojure.lang.BigInt y)
-  [java.lang.Double java.lang.Double] (quot (- x (mod x y) y))
-  [clojure.lang.BigInt java.lang.Double] (quot (- x (mod x y) y))
-  [java.lang.Double clojure.lang.BigInt] (quot (- x (mod x y) y))
+  [java.lang.Double java.lang.Double] (quot (- x (mod x y)) y)
+  [clojure.lang.BigInt java.lang.Double] (quot (- x (mod x y)) y)
+  [java.lang.Double clojure.lang.BigInt] (quot (- x (mod x y)) y)
   :else (binary-operation "__floordiv__" x y))
 
 (define-operation $mod [x y] ; //

@@ -257,7 +257,7 @@
   (&prefixed :class &name (&optional (&paren &arglist)) &colon-suite))
 
 (def &augassign
-  (&type-if #{:iadd :isub :imul :ifloordiv :imod :iand :ior :ixor :irshift :ilshift :ipow}))
+  (&type-if #{:iadd :isub :imul :idiv :ifloordiv :imod :iand :ior :ixor :irshift :ilshift :ipow}))
 
 (def &dotted-name (&info (&tag* :dotted-name (&non-empty-separated-list &name &dot))))
 (def &import-as-name (&vector &name (&optional (&do (&type :as) &name))))

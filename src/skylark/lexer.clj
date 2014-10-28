@@ -247,7 +247,7 @@
                                           (#{\x \X} c) (&do &read-char &hexadecimal-integer)
                                           (#{\b \B} c) (&do &read-char &binary-integer)
                                           ;; (octal-digit c) &octal-integer ;; Python 2 ism
-                                          :else (&do (&repeat (&char= \0)) (&return 0M)))))
+                                          :else (&do (&repeat (&char= \0)) (&return 0N)))))
             (decimal-digit c) &decimal-integer
             :else &fail)]
     [:integer i]))

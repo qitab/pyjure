@@ -12,5 +12,5 @@
 (deftest desugar-test
   ;; (testing "desugar smoketest")
   (testing "Every python desugaring rule"
-    (match [(tryf #(sky/desugar python-test))] [[':suite & _]]
+    (match [(tryf #(sky/desugar python-test))] [[':module & _]]
            (is (= 1 1)))))

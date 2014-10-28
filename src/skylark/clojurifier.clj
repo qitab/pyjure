@@ -29,7 +29,7 @@
     ;; (DBG :rc x E)
     [(match [x]
        [[(:or ':integer :string :bytes) c]] c
-       [[b :guard keyword?] (builtin-id b)]) E]))
+       [[b :guard keyword?]] (builtin-id b)) E]))
 
 (defn do-conj [a r] (match [r] [(['do & s] :seq)] `(~'do ~a ~@s) :else `(~'do ~a ~r)))
 

@@ -12,9 +12,6 @@ def p(*x): print(x)
 p("'Hel" + "lo,", 'Wor'
   'ld.\'')
 
-p("'Hel" + "lo,", 'Wor'
-  'ld.\'')
-
 def f1(x,y,z=False,t=False):
   if x:
     return 1, 2, 3 # testlist
@@ -103,6 +100,7 @@ class Foo:
     a *= 3
     a /= 2
     a **= 4
+    a //= 3
     a |= 7
     a &= 255
     a ^= 33
