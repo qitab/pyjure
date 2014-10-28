@@ -1,8 +1,10 @@
 (ns skylark.runtime
   (:require [clojure.core :as c]
             [clojure.string :as str]
-            [clojure.set :as set])
+            [clojure.set :as set]
+            [clojure.math.numeric-tower :as math])
   (:use [clojure.core.match :only [match]]
+        [skylark.debug]
         [skylark.utilities]))
 
 ;; https://docs.python.org/3/library/operator.html
@@ -32,7 +34,7 @@
 (defn builtin? [x]
   (or (= x $None) (list? x)
       (boolean
-       (#{java.lang.Boolean java.lang.Long java.math.BigDecimal java.lang.String
+       (#{java.lang.Boolean java.lang.Long clojure.lang.BigInt java.lang.String
           clojure.lang.PersistentVector clojure.lang.PersistentHashSet clojure.lang.PersistentArrayMap}
         (type x)))))
 (def $builtin ;; python builtin types
@@ -99,16 +101,67 @@
   [$easy-truth] true
   :else (subtle-truth? x))
 
+(defn binary-operation [op x y]
+  (NFN))
+
 (define-operation $add [x y]
-  ([java.math.BigDecimal java.math.BigDecimal] (+ x y)
-   [java.lang.Double java.lang.Double] (+ x y)
-   [java.math.BigDecimal java.lang.Doublejava.lang.Double] (+ x y)
-   [java.lang.Doublejava.lang.Double java.math.BigDecimal] (+ x y)
-   [$list $list] (concat x y)
-   [$tuple $tuple] (concat x y)
-   [$set $set] (into x y)
-   [$dict $dict] (into x y)
-   :else (binary-operation __add__ x y)))
+  [clojure.lang.BigInt clojure.lang.BigInt] (+ ^clojure.lang.BigInt x ^clojure.lang.BigInt y)
+  [java.lang.Double java.lang.Double] (+ ^java.lang.Double x ^java.lang.Double y)
+  [clojure.lang.BigInt java.lang.Double] (+ ^clojure.lang.BigInt x y)
+  [java.lang.Double clojure.lang.BigInt] (+ x ^clojure.lang.BigInt y)
+  [$list $list] (concat x y)
+  [$tuple $tuple] (concat x y)
+  [$set $set] (into x y)
+  [$dict $dict] (into x y)
+  :else (binary-operation "__add__" x y))
+
+(define-operation $sub [x y]
+  [clojure.lang.BigInt clojure.lang.BigInt] (- ^clojure.lang.BigInt x ^clojure.lang.BigInt y)
+  [java.lang.Double java.lang.Double] (- ^java.lang.Double x ^java.lang.Double y)
+  [clojure.lang.BigInt java.lang.Double] (- ^clojure.lang.BigInt x ^java.lang.Double y)
+  [java.lang.Double clojure.lang.BigInt] (- x ^clojure.lang.BigInt ^java.lang.Double y)
+  :else (binary-operation "__sub__" x y))
+
+(define-operation $mul [x y]
+  [clojure.lang.BigInt clojure.lang.BigInt] (* ^clojure.lang.BigInt x ^clojure.lang.BigInt y)
+  [java.lang.Double java.lang.Double] (* ^java.lang.Double x ^java.lang.Double y)
+  [clojure.lang.BigInt java.lang.Double] (* ^clojure.lang.BigInt x ^java.lang.Double y)
+  [java.lang.Double clojure.lang.BigInt] (* x ^clojure.lang.BigInt ^java.lang.Double y)
+  :else (binary-operation "__mul__" x y))
+
+(define-operation $div [x y] ; /
+  ;; integer division here is "true division" like python3, not "classic division" like python2
+  [clojure.lang.BigInt clojure.lang.BigInt] (/ (.doubleValue ^clojure.lang.BigInt x)
+                                                 (.doubleValue ^clojure.lang.BigInt y))
+  [java.lang.Double java.lang.Double] (/ ^java.lang.Double x ^java.lang.Double y)
+  [clojure.lang.BigInt java.lang.Double] (/ ^clojure.lang.BigInt x ^java.lang.Double y)
+  [java.lang.Double clojure.lang.BigInt] (/ ^clojure.lang.BigInt x ^java.lang.Double y)
+  :else (binary-operation "__div__" x y))
+
+(define-operation $floordiv [x y] ; //
+  [clojure.lang.BigInt clojure.lang.BigInt]
+  (quot (- ^clojure.lang.BigInt x (mod ^clojure.lang.BigInt x ^clojure.lang.BigInt y))
+        ^clojure.lang.BigInt y)
+  [java.lang.Double java.lang.Double] (quot (- x (mod x y) y))
+  [clojure.lang.BigInt java.lang.Double] (quot (- x (mod x y) y))
+  [java.lang.Double clojure.lang.BigInt] (quot (- x (mod x y) y))
+  :else (binary-operation "__floordiv__" x y))
+
+(define-operation $mod [x y] ; //
+  [clojure.lang.BigInt clojure.lang.BigInt] (mod ^clojure.lang.BigInt x ^clojure.lang.BigInt y)
+  [java.lang.Double java.lang.Double] (mod ^java.lang.Double x ^java.lang.Double y)
+  [clojure.lang.BigInt java.lang.Double] (mod ^clojure.lang.BigInt x ^java.lang.Double y)
+  [java.lang.Double clojure.lang.BigInt] (mod ^clojure.lang.BigInt x ^java.lang.Double y)
+  :else (binary-operation "__mod__" x y))
+
+;; TODO: make these extensible
+(defn $and [x y] (and ($truth x) ($truth y)))
+(defn $or [x y] (or ($truth x) ($truth y)))
+(defn $xor [x y] (not (= ($truth x) ($truth y))))
+(defn $rshift [x y] (bit-shift-right x y))
+(defn $lshift [x y] (bit-shift-left x y))
+(defn $pow [x y] (math/expt x y))
+(defn $matmul [x y] (NIY))
 
 (defn $not [x] (not ($truth x))) ; python: operator.not_(x), but no magic __not__ method delegation.
 

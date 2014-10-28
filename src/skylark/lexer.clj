@@ -247,7 +247,7 @@
                                           (#{\x \X} c) (&do &read-char &hexadecimal-integer)
                                           (#{\b \B} c) (&do &read-char &binary-integer)
                                           ;; (octal-digit c) &octal-integer ;; Python 2 ism
-                                          :else (&do (&repeat (&char= \0)) (&return 0N)))))
+                                          :else (&do (&repeat (&char= \0)) (&return 0M)))))
             (decimal-digit c) &decimal-integer
             :else &fail)]
     [:integer i]))
@@ -261,7 +261,7 @@
     ("@" matmul) ("=" assign) ("..." Ellipsis)
     ;; Augmented assignment operators, with the name of corresponding magic operator, as per
     ;; http://www.rafekettler.com/magicmethods.html
-    ("+=" iadd) ("-=" isub) ("*=" imul) ("/=" imul) ("//=" ifloordiv) ("%=" imod)
+    ("+=" iadd) ("-=" isub) ("*=" imul) ("/=" idiv) ("//=" ifloordiv) ("%=" imod)
     ("&=" iand) ("|=" ior) ("^=" ixor) (">>=" irshift) ("<<=" ilshift)
     ("**=" ipow) ("@=" imatmul)
     ;; ("`" repr) ;; Python 2 has `x` for repr(x), but it's deprecated and not in Python 3.

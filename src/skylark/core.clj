@@ -14,8 +14,9 @@
             [skylark.cleanup :as cleanup]
             [skylark.continuation-analysis :as continuation-analysis]
             [skylark.effect-analysis :as effect-analysis]
-            [skylark.clojurifier :as clojurifier]))
-
+            [skylark.clojurifier :as clojurifier]
+            [skylark.eval :as eval]
+            [skylark.user :as user]))
 
 (def passes
   [;; * → [reader:java.io.Reader filename:String]
@@ -53,8 +54,13 @@
 
    ;; → converting to clojure code, executable with skylark.runtime
    :clojurify #'clojurifier/clojurify
+
+   ;; → evaluate
+   :evaluate #'eval/evaluate
   ])
 
+;; Which vars should we bind from this list?
+;; (->> (all-ns) (mapcat ns-publics) (map second) (filter (comp :dynamic meta)))
 (defn skylark
   ([input] (skylark nil input))
   ([last-pass input] (skylark nil last-pass input))

@@ -145,7 +145,7 @@
 (defn expand-cond [clauses else x]
   (letfn [(v [& a] (copy-source-info x (vec a)))]
     (if-let [[[test iftrue] & moreclauses] clauses]
-      (v :if (v :builtin :truthy test) iftrue (expand-cond moreclauses else x))
+      (v :if (v :builtin :truth test) iftrue (expand-cond moreclauses else x))
       (or else (v :constant (v :None))))))
 
 (defn expand-decorator [x base]
@@ -198,7 +198,7 @@
       (&let [s (&desugar* args)] (w :builtin tag s))
       [[':if-expr test body else]]
       (&let [[test body else] (&desugar* [test body (or else (v :None))])]
-            (v :if (v :builtin :truthy test) body else))
+            (v :if (v :builtin :truth test) body else))
       [[':for target generator body else]]
       (with-gensyms [gen]
         (&desugar

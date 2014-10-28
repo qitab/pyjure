@@ -6,6 +6,7 @@
   :main skylark.core
   :dependencies [[org.clojure/clojure "1.6.0"]
                  [leijure/delta-position "0.1.0"]
+                 [org.clojure/math.numeric-tower "0.0.4"]
 
                  ;;; TODO: actually use these
                  [com.ibm.icu/icu4j "52.1"] ;; add Unicode character support to the lexer

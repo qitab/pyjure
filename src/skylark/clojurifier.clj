@@ -26,10 +26,10 @@
 (defn builtin-id [x] (symbol (str "$" (name x))))
 (defn &resolve-constant [x]
   (fn [E]
-    (DBG :rc x E)
-    [(case (first x)
-       (:integer :string :bytes) (second x)
-       (builtin-id (first x))) E]))
+    ;; (DBG :rc x E)
+    [(match [x]
+       [[(:or ':integer :string :bytes) c]] c
+       [[b :guard keyword?] (builtin-id b)]) E]))
 
 (defn do-conj [a r] (match [r] [(['do & s] :seq)] `(~'do ~a ~@s) :else `(~'do ~a ~r)))
 
@@ -47,7 +47,7 @@
       [a] (&C a)
       [a b & r] (&let [a (&C a) r (&Csuite (cons b r))] (do-conj a r)))))
 
-(defn lookup-var [x E]
+(defn lookup-var [s x E]
   ;; returns the FURAL status of the binding of x in E.
   ;; what if it's defined in an outer scope?
   true)
@@ -60,7 +60,7 @@
         [nil] &nil
         [[:id s]]
         (&let [sym (&resolve-id s)
-               status (fn [E] [(lookup-var s E) E])
+               status (fn [E] [(lookup-var s x E) E])
                info (&return (source-info x))
                * (do (DBG :&C-id sym status info)
                      (&r (case status
