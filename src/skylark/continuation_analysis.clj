@@ -24,7 +24,7 @@ Information is stored in metadata for each node.
 
 The analysis state is a map with keys being:
 :vars (map variable names (strings) to FURAL values)
-:continuations (map the following to FURAL values;
+:continuations (map the following to FURAL values for 'this effect may happen in the continuation'
   actually FAL for all but yield, since the language has no multiple-use continuations;
   we could include :raise, but at this point, before type analysis,
   too few things are guaranteed NOT to raise for that to bring useful information.)
@@ -34,7 +34,7 @@ The analysis state is a map with keys being:
   :break
   :continue
   :yield
-:effects (map the following to FL value)
+:effects (map the following to FL value for 'if this effect happens, it needs to be reified')
   ??? :value (the continuation uses the value of this particular expression)
   :return (the continuation captures whether this part of the code returns),
   :raise (the continuation captures whether this part of the code raises exceptions),

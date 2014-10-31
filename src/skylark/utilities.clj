@@ -236,6 +236,15 @@ The macro expansion has relatively low overhead in space or time."
     (:required) f-repeat
     (true) f-maybe-repeat))
 
+(defn f-min [x y] ;; minimum of the two
+  (cond
+   (or (not x) (not y)) false
+   (or (= x :linear) (= y :linear)) :linear
+   (= x :affine) (if (= y :required) :linear :affine)
+   (= y :affine) (if (= x :required) :linear :affine)
+   (or (= x :required) (= y :required)) :required
+   :else true))
+
 
 ;;; Reexporting things from another namespace
 (defmacro reexport [ns & xs]

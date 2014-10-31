@@ -1,4 +1,6 @@
 (ns skylark.clojurifier
+  (:require [skylark.continuation-analysis :as ka]
+            [skylark.effect-analysis :as fxa])
   (:use [clojure.core.match :only [match]]
         [skylark.debug :exclude [clojurify]]
         [skylark.utilities]
@@ -47,6 +49,62 @@
       [a] (&C a)
       [a b & r] (&let [a (&C a) r (&Csuite (cons b r))] (do-conj a r)))))
 
+(defn condify [x]
+  (match [x]
+    [[:if test ifthen ifelse]]
+    (let [[test-thens else] (condify ifelse)]
+      [(cons [test ifthen] test-thens) else])
+    :else [() x]))
+
+(defn cond-conj [test then else]
+  (match else
+    [([(:or 'cond 'if) & s] :seq)] `(~'cond ~test ~then ~@s)
+    :else `(~'if ~test ~then ~else)))
+
+(defn sort-effects [fx]
+  (concat (filter (:effects fx) [:return :raise :break :continue :yield])
+          (sort (map first (:vars fx)))))
+
+(defn mapintersect [m1 m2] (mapcombine f-min m1 m2))
+
+(defn &Ccond [[test-thens else] meta]
+  ;; 1- we know from meta what bindings are used in the continuation --
+  ;;   they are the vector that the cond will return
+  ;;   actually, we may also return a value
+  ;;   and return a flag saying we have returned
+  ;;   and an exception…
+  ;; 2- for each test-thens have the thens return a vector of these expected things
+  ;; 3- each test has all the effects of all the further tests in its continuation
+  ;;   IF there are no escaping bindings in the test, THEN we can use cond,
+  ;;   and merge with the other things with cond-conj
+  (fn [E]
+    (let [effects-that-matter-after-cond
+          ;; merge local result from continuation-analysis with accumulated context
+          (ka/env-both (assoc meta :capturing) (assoc E :capturing))
+          fx-in #(assoc (meta %) :capturing)
+          effects-than-can-happen-in-cond ;; from effect-analysis
+          (reduce (fn [fx-else [test then]] (fxa/env-both test (fxa/env-either (fx-in then) fx-else)))
+                  (fx-in else) test-thens)
+          m-intersect (fn [m1 p m2] (update-in m1 p #(mapintersect % (get-in m2 p))))
+          fx-restrict (fn [f1 f2] (-> f1 (m-intersect [:vars] f2) (m-intersect [:effects] f2)))
+          effects-we-need-to-return (fx-restrict effects-that-matter-after-cond
+                                                 effects-than-can-happen-in-cond)
+          sorted-effects-we-need-to-return (sort-effects effects-we-need-to-return)
+          translate (fn [x] x '… sorted-effects-we-need-to-return)
+          translate-else (translate else)]
+      (loop [test-thens test-thens
+             expression translate-else]
+        (if (empty? test-thens)
+          expression
+          (let [[test then] (first test-thens)]
+            (recur (rest test-thens)
+                   (cond-conj (translate test)
+                              (translate then)
+                              expression))))))))
+
+(defn &Cif [x m]
+  (&Ccond (condify x) (meta x)))
+
 (defn lookup-var [s x E]
   ;; returns the FURAL status of the binding of x in E.
   ;; what if it's defined in an outer scope?
@@ -65,7 +123,8 @@
                * (do (DBG :&C-id sym status info)
                      (&r (case status
                            (:linear :required) sym
-                           (nil false true :affine) `(~'$ensure-not-nil ~sym ~info))))])
+                           (true :affine) `(~'$ensure-not-nil ~sym ~info)
+                           (nil false) `(~'$unbound-variable ~sym ~info))))])
         [[:suite & as]] (&Csuite as)
         [[:bind [:id s] :as n a]] (do (DBG :bind s a) (&C a)) ;; no suite to consume the binding
         [[:unbind [:id s]]] &nil
@@ -74,6 +133,7 @@
         (&let [as (&C* as)] (m `(~(builtin-id b) ~@as)))
         [[:call f a]] (&let [f (&C f) a (&Cargs a) * (&r `(~'$call ~f ~a))])
         [[:module a]] (&C a) ;; TODO: handle update to global state
+        [[:if & _]] (&Cif x)
         :else (do (comment
         [[:argument id type default]]
         ;; handles argument in the *outer* scope where the function is defined,
@@ -94,7 +154,7 @@
         [[:handler-bind body handler]] (&m (&tag :handler-bind (&C body) (&C handler)))
         [[h :guard #{:yield :yield-from} a]]
         (&do (&assoc-in [:generator?] true) (&m (&tag h (&C a))))
-        [[h :guard #{:suite :raise :while :if} & a]] (&m (&tag* h (&C* a)))
+        [[h :guard #{:suite :raise :while} & a]] (&m (&tag* h (&C* a)))
         [[:handler-bind [:id s] :as target body handler]]
         (&let [type (&C type)
                _ (&assoc-in [:vars s :bound?] true)

@@ -20,9 +20,9 @@ Invariant: if the pass returns without an error, only metadata is changed.
 Information is stored in metadata for each node.
 
 The analysis state is a map with keys being:
-:vars (map variable names (strings) to FURAL values)
+:vars (map variable names (strings) to FURAL values for 'this variable is initialized')
 ?TODO :preconditions (map the following to FURAL values):
-:effects (map the following to FL value)
+:effects (map the following to FURAL value for 'this effect happened in the past')
   :suite (continue to the current (input) or next (output) expression or statement)
   :return (the continuation captures whether this part of the code returns),
   :raise (the continuation captures whether this part of the code raises exceptions),
