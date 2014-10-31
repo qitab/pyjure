@@ -56,11 +56,15 @@ Problem: effects to the end of the branch vs all effects including beyond the cu
 (defn env-either [E E'] (env-combine f-either E E'))
 (defn env-both [E E'] (env-combine f-both E E'))
 
+;;(def value-env {:effects {:value :linear}})
+;;(defn &using-value
+;;  ([&x fural] (&let [x &x] (with-meta x (assoc-in (meta x) [:capturing :effects :value] fural))))
+;;  ([&x] (&using-value &x true)))
 
 (declare &A &A* &Aargs)
 
 (defn &A* [xs] (&let [r (&map &A (reverse xs))] (vec (reverse r))))
-(defn &Aargs [x]
+(defn &Aargs [x] ;; &using-value everywhere
   (if-let [[args star-arg more-args kw-arg] x]
     (&let [kw-arg (&A kw-arg)
            more-args (&A* more-args)
@@ -68,10 +72,6 @@ Problem: effects to the end of the branch vs all effects including beyond the cu
            args (&A* args)]
           [(vec args) star-arg (vec more-args) kw-arg])
     &nil))
-
-;;(defn &use-value [E] [nil (assoc-in E [:effects :value] :linear)])
-;;(defn &ignore-value [E] [nil (assoc-in E [:effects :value] false)])
-;;(def value-env {:effects {:value :linear}})
 
 (defn &A [x]
   ;; NB: reverse order matters in listing effect capturing
@@ -82,7 +82,7 @@ Problem: effects to the end of the branch vs all effects including beyond the cu
         [nil] &nil
         [[:id s]] (&do (&update-in [:vars s] f-once-more) (&r x))
         [[:bind [:id s] :as n a]] (&let [_ (&assoc-in [:vars s] false)
-                                         a (&A a)
+                                         a (&A a) ;; (&using-value ...)
                                          * (&r [:bind n a])])
         [[:unbind [:id s]]] (&do (&assoc-in [:vars s] false) (&r x))
         [[:constant c]] (&r x)
