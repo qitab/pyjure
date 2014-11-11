@@ -15,6 +15,10 @@
 ;; of what is local, nonlocal, global, what is yielding, etc., which is done later.
 ;; Or can we simplify it already to e.g. a single clojure-style loop statement?
 ;;
+;; TODO: we might want to  preserve cond instead of if, because we want to avoid chaining
+;; of administrative reductions for chaining of slightly different monads when nesting cases of ifs.
+;; Or is there a more general way of doing the reductions at compile-time?
+;;
 ;; * decorators are expanded away
 ;; * function definitions transformed in x = function()... ; return None
 ;; * lambdas args: value become function (args): return value
