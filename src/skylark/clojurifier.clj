@@ -1,17 +1,16 @@
 (ns skylark.clojurifier
   (:require [skylark.continuation-analysis :as ka]
-            [skylark.effect-analysis :as fxa])
+            [skylark.effect-analysis :as fxa]
+            [skylark.debug :as sky])
   (:use [clojure.core.match :only [match]]
         [skylark.debug :exclude [clojurify]]
         [skylark.utilities]
         [skylark.parsing]
         [skylark.runtime]))
 
-;; TODO? have a previous pass transform everything in A-normal form,
-;; where all arguments to functions are trivial (constant, function, variable)?
 ;; TODO: transform every branch point into binding-passing style?
 
-(defrecord Environment [level local outer global])
+;; (defrecord Environment [level local outer global])
 ;; level: 0 for global, incremented when you descend into scope
 ;; local: map of names to getters, or nil if level is 0
 ;; outer: the next outer non-global environment, or nil if only global is next
@@ -57,17 +56,23 @@
     :else [() x]))
 
 (defn cond-conj [test then else]
-  (match else
+  {:pre [(do (DBG "cond-conj <=" test then else) true)]
+   :post [(do (DBG "cond-conj =>" %) true)]}
+  (match [else]
     [([(:or 'cond 'if) & s] :seq)] `(~'cond ~test ~then ~@s)
     :else `(~'if ~test ~then ~else)))
 
 (defn sort-effects [fx]
-  (concat (filter (:effects fx) [:return :raise :break :continue :yield])
-          (sort (map first (:vars fx)))))
+  {:pre [(do (DBG :sort-effects fx) true)]
+   :post [(do (DBG :sort-effects=> %) true)]}
+  (concat (filter (let [e (:effects fx)] #(get e %)) [:return :raise :break :continue :yield])
+          (sort (map first (filter second (:vars fx))))))
 
 (defn mapintersect [m1 m2] (mapcombine f-min m1 m2))
 
 (defn &Ccond [[test-thens else] meta]
+  ;; 0- E should contain the equivalent of effects-that-matter for the overall expression
+  ;;   (or can we already deduce that from the meta annotations on the expression?)
   ;; 1- we know from meta what bindings are used in the continuation --
   ;;   they are the vector that the cond will return
   ;;   actually, we may also return a value
@@ -78,10 +83,11 @@
   ;;   IF there are no escaping bindings in the test, THEN we can use cond,
   ;;   and merge with the other things with cond-conj
   (fn [E]
+    (DBG :&Ccond test-thens else meta E)
     (let [effects-that-matter-after-cond
           ;; merge local result from continuation-analysis with accumulated context
-          (ka/env-both (assoc meta :capturing) (assoc E :capturing))
-          fx-in #(assoc (meta %) :capturing)
+          (ka/env-both (get meta :capturing) (get E :capturing))
+          fx-in #(get (meta %) :capturing)
           effects-than-can-happen-in-cond ;; from effect-analysis
           (reduce (fn [fx-else [test then]] (fxa/env-both test (fxa/env-either (fx-in then) fx-else)))
                   (fx-in else) test-thens)
@@ -90,19 +96,19 @@
           effects-we-need-to-return (fx-restrict effects-that-matter-after-cond
                                                  effects-than-can-happen-in-cond)
           sorted-effects-we-need-to-return (sort-effects effects-we-need-to-return)
-          translate (fn [x] x '… sorted-effects-we-need-to-return)
+          translate (fn [x] (first ((&C x) sorted-effects-we-need-to-return)))
           translate-else (translate else)]
-      (loop [test-thens test-thens
-             expression translate-else]
-        (if (empty? test-thens)
-          expression
-          (let [[test then] (first test-thens)]
-            (recur (rest test-thens)
-                   (cond-conj (translate test)
-                              (translate then)
-                              expression))))))))
+      [(loop [test-thens test-thens
+              expression translate-else]
+         (if (empty? test-thens)
+           expression
+           (let [[test then] (first test-thens)]
+             (recur (rest test-thens)
+                    (cond-conj (translate test)
+                               (translate then)
+                               expression))))) E])))
 
-(defn &Cif [x m]
+(defn &Cif [x]
   (&Ccond (condify x) (meta x)))
 
 (defn lookup-var [s x E]
@@ -113,7 +119,7 @@
 (defn &C [x]
   (letfn [(m [a] (copy-source-info x a))
           (&r [x] (&return (m x)))]
-    (fn [E] (DBG :&C x E) (
+    (tracing (clojure.pprint/cl-format nil "&C ~S" x) (fn [E] ( ;; ??? TODO: remove that (fn [E]… and the matching …E)??
       (match [x]
         [nil] &nil
         [[:id s]]
@@ -168,13 +174,16 @@
                       ($syntax-error x "invalid yield in class %a" [:name] {:name s})
                       (M (check-effects x innerE false) :class name args body)))))
         :else)
-        ($syntax-error x "unexpected expression %s during clojure generation pass"))) E))))
+        ($syntax-error x "unexpected expression %s during clojure generation pass"))) E)))))
 
 (defn &C* [xs] (&map &C xs))
 (def &Cargs (&args &C))
 
 (defn clojurify [x]
-  (let [[x E] ((&C x) nil)]
+  (let [[x E] ((&C x)
+               (sort-effects
+                ;; or should it be (:capturing (meta x)) ?
+                {:value :linear}))]
     x))
 
 (comment

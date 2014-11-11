@@ -45,8 +45,9 @@
    :cleanup #'cleanup/cleanup
 
    ;; TODO:
-   ;; → AST3: transform into A-normal form, where all function call arguments are trivial.
-   ;; (maybe do effect analysis first or intermingled, to ensure all variables are bound?
+   ;; → AST3: transform into A-normal form, where all function call arguments are trivial,
+   ;; i.e. constant, function or variable.
+   ;; (maybe do effect analysis first or intermingled, to ensure all variables are bound
    ;; or always add a binding verification, that will be checked later?)
 
    ;; → AST2.1: analyze liveness of variables and effects captured in each statement's continuation.
