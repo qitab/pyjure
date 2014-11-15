@@ -34,6 +34,7 @@
 
 (defn do-conj [a r] (match [r] [(['do & s] :seq)] `(~'do ~a ~@s) :else `(~'do ~a ~r)))
 
+;; TODO: support changing set of bindings and effects
 (defn &Csuite [x]
   (letfn [(&let-form [s n a b r]
             (&let [a (&C a) r (&Csuite r)]
@@ -63,8 +64,8 @@
     :else `(~'if ~test ~then ~else)))
 
 (defn sort-effects [fx]
-  {:pre [(do (DBG :sort-effects fx) true)]
-   :post [(do (DBG :sort-effects=> %) true)]}
+  {:pre [(do (DBG "sort-effects <=" fx) true)]
+   :post [(do (DBG "sort-effects =>" %) true)]}
   (concat (filter (let [e (:effects fx)] #(get e %)) [:return :raise :break :continue :yield])
           (sort (map first (filter second (:vars fx))))))
 
@@ -83,7 +84,7 @@
   ;;   IF there are no escaping bindings in the test, THEN we can use cond,
   ;;   and merge with the other things with cond-conj
   (fn [E]
-    (DBG :&Ccond test-thens else meta E)
+    ;;(DBG :&Ccond test-thens else meta E)
     (let [effects-that-matter-after-cond
           ;; merge local result from continuation-analysis with accumulated context
           (ka/env-both (get meta :capturing) (get E :capturing))
@@ -126,13 +127,13 @@
         (&let [sym (&resolve-id s)
                status (fn [E] [(lookup-var s x E) E])
                info (&return (source-info x))
-               * (do (DBG :&C-id sym status info)
+               * (do ;; (DBG :&C-id sym status info)
                      (&r (case status
                            (:linear :required) sym
                            (true :affine) `(~'$ensure-not-nil ~sym ~info)
                            (nil false) `(~'$unbound-variable ~sym ~info))))])
         [[:suite & as]] (&Csuite as)
-        [[:bind [:id s] :as n a]] (do (DBG :bind s a) (&C a)) ;; no suite to consume the binding
+        [[:bind [:id s] :as n a]] (&C a) ;; no suite to consume the binding
         [[:unbind [:id s]]] &nil
         [[:constant c]] (&resolve-constant c)
         [[:builtin b & as]]
@@ -145,6 +146,7 @@
         ;; handles argument in the *outer* scope where the function is defined,
         ;; *NOT* in the inner scope that the function defines (see :function for that)
         (&m (&into [:argument id] (&C type) (&C default)))
+        [[:return a]] (&m (&tag :return (&C a)))
         [[:function args return-type body]]
         (&m (&let [args (&Cargs args) ; handle type and default
                    return-type (&C return-type)]
@@ -153,7 +155,6 @@
                         [body innerE] ((&C body) innerE)]
                     (M (check-effects x innerE true)
                        :function args return-type body))))
-        [[:return a]] (&m (&tag :return (&C a)))
         [[(:or ':from ':import ':break ':continue) & _]] (&x)
         [[:unwind-protect body protection]]
         (&m (&tag :unwind-protect (&C body) (&C protection)))
