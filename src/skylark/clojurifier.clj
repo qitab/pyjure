@@ -10,6 +10,20 @@
 
 ;; TODO: transform every branch point into binding-passing style?
 
+;; TODO:
+;; * The monadic environment will contain the "shape" required
+;;   from the expansion of the current form, i.e. list of effects and binding labels
+;;   that are both in the form's output effects and its continuation's input effects.
+;;   i.e. a map similar to the results from continuation-analysis,
+;;   that ought to also include a :value entry or something.
+;; * The expanders will return a map of bindings + effects to expanded forms
+;; * The monadic binder will create the form based on these two things,
+;;   i.e. this would not be a state monad? Or instead of "return"ing,
+;;   the expanders call a standard function that does this magic.
+;;   if the only expected thing is the value, return that;
+;;   otherwise return a vector of the forms for various effects in sorted order,
+;;   that will be deconstructed around the next form.
+
 ;; (defrecord Environment [level local outer global])
 ;; level: 0 for global, incremented when you descend into scope
 ;; local: map of names to getters, or nil if level is 0

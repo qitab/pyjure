@@ -49,6 +49,7 @@
    ;; i.e. constant, function or variable.
    ;; (maybe do effect analysis first or intermingled, to ensure all variables are bound
    ;; or always add a binding verification, that will be checked later?)
+   ;; :anormalize #'anormalization/anormalize
 
    ;; → AST2.1: analyze liveness of variables and effects captured in each statement's continuation.
    :analyze-continuations #'continuation-analysis/analyze-continuations
