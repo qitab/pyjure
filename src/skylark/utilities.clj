@@ -246,6 +246,50 @@ The macro expansion has relatively low overhead in space or time."
    :else true))
 
 
+;;; Basic character kinds
+(defn reduce-compare [compare l]
+  (or (empty? l) (empty? (rest l))
+      (loop [x (first l) l (rest l)]
+        (or (empty? l)
+            (let [[y & r] l] (and (compare x y) (recur y r)))))))
+
+(defn char<=
+  ([] true) ([x] true)
+  ([x y] (<= (int x) (int y)))
+  ([x y z & t] (reduce-compare char<= (concat [x y z] t))))
+(defn char<
+  ([] true) ([x] true)
+  ([x y] (< (int x) (int y)))
+  ([x y z & t] (reduce-compare char< (concat [x y z] t))))
+(defn char>
+  ([] true) ([x] true)
+  ([x y] (> (int x) (int y)))
+  ([x y z & t] (reduce-compare char> (concat [x y z] t))))
+(defn char>=
+  ([] true) ([x] true)
+  ([x y] (>= (int x) (int y)))
+  ([x y z & t] (reduce-compare char>= (concat [x y z] t))))
+
+(defn in-char-range? [c first length]
+  (when-let [n (and c (- (int c) (int first)))]
+    (and (< -1 n length) n)))
+
+(defn uppercase-letter? [c] (in-char-range? c \A 26))
+(defn lowercase-letter? [c] (in-char-range? c \a 26))
+(defn letter? [c] (or (uppercase-letter? c) (lowercase-letter? c)))
+(defn digit? [c] (in-char-range? c \0 10))
+(defn alphanumeric? [c] (or (digit? c) (when-let [i (letter? c)] (+ i 10))))
+(defn octal-digit? [c] (in-char-range? c \0 8))
+(defn hexadecimal-digit? [c] (let [n (alphanumeric? c)] (and n (<= n 16) n)))
+
+(defn letter_? [c] (or (letter? c) (= c \_)))
+(defn alphanumeric_? [c] (or (alphanumeric? c) (= c \_)))
+
+(defn downcase-char [c]
+  ;; (char (java.lang.Character/toLowerCase (int c)))))
+  (when c (if-let [n (uppercase-letter? c)] (char (+ n (int \a))) c)))
+
+
 ;;; Reexporting things from another namespace
 (defmacro reexport [ns & xs]
   `(do ~@(map #(do `(def ~% ~(symbol (str ns) (str %)))) xs)))
@@ -255,3 +299,4 @@ The macro expansion has relatively low overhead in space or time."
   `(do ~@(map #(do `(defn ~% [& a#] (apply (find-var (symbol ~(str ns) ~(str %))) a#))) xs)))
 (defmacro reexport-macro-deferred [ns & xs]
   `(do ~@(map #(do `(defmacro ~% [& a#] `(~(symbol ~(str ns) ~(str %)) ~@a#))) xs)))
+

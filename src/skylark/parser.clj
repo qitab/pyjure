@@ -141,6 +141,8 @@
 
 (defn &argslist [defining typed]
   ;; NB: Like Python 3, unlike Python 2, we don't allow destructuring of arguments
+  ;; TODO: check that when defining, all arguments after one that has a default also have a default.
+  ;; we can easily make that part of the grammar, unlike in Python; or we can add a check post-parse.
   (let [&args (&non-empty-separated-list
                (if defining
                  (&info (&tag :argument &name
@@ -152,7 +154,8 @@
            (&or (&vector &args &optional-comma)
                 (&return [nil true]))
            [rest-arg yetmore]
-           (if more (&or (&vector (&do (&type :mul) &rarg) &optional-comma)
+           (if more (&or (&vector (&do (&type :mul) (if defining (&or &rarg (&return :False)) &rarg))
+                                  &optional-comma)
                          (&return [nil more]))
                (&return [nil nil]))
            [more-args stillmore]

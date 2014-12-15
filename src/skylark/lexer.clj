@@ -97,13 +97,6 @@
            (or (empty? ris) (> column top)) ((&error "invalid dedentation") σ)
            :else (recur ris (tok+ nout :dedent))))))))
 
-(defn char-range [first last] (map char (range (int first) (inc (int last)))))
-(def uppercase (into #{} (char-range \A \Z)))
-(def lowercase (into #{} (char-range \a \z)))
-(def digits (into #{} (char-range \0 \9)))
-(def letters_ (set/union uppercase lowercase #{\_}))
-(def letters_digits (set/union letters_ digits))
-
 (defn sym [x] (keyword x)) ;; (symbol "skylark.semantics" x)
 
 (def keywords ;; keywords in the Python 3 sense, here symbols on the Clojure side.
@@ -117,41 +110,28 @@
 
 ;; TODO: python 3 accepts unicode letters, too. See Python 3 documentation above.
 (def &ident-or-keyword
-  (&let [c (&char-if letters_)
-         s (&chars (&char-if letters_digits) (list c))]
+  (&let [c (&char-if letter_?)
+         s (&chars (&char-if alphanumeric_?) (list c))]
         (if-let [k (keywords s)]
           [k] ;; skylark keywords as clojure symbols
           [:id s]))) ;; identifiers as strings (for now... can be interned later)
 
-(defn char-lower-case [c] (when c (char (java.lang.Character/toLowerCase (int c)))))
-(def char-name-chars (set/union uppercase #{\space}))
+(defn char-name-char? [c] (or (uppercase-letter? c) (= c \space)))
 (def &named-char
   (&let [  (&char= \{)
-         name (&chars (&char-if char-name-chars))
+         name (&chars (&char-if char-name-char?))
          _ (&char= \})
            (&error "Function %s not implemented yet (char name %s)"
                    [:function :name] {:function '&named-char :name name})]))
 
 (defmacro int<-digits [base & digits] (reduce #(do `(+ (* ~% ~base) ~%2)) digits))
 
-(defn octal-digit [c]
-  (when-let [n (and c (int c))]
-    (when (<= (int \0) n (int \7)) (- n (int \0)))))
-(def &octal-digit (&let [c &read-char x (if (octal-digit c) (&return c) &fail)]))
+(def &octal-digit (&let [c &read-char x (if (octal-digit? c) (&return c) &fail)]))
+(def &decimal-digit (&let [c &read-char x (if (digit? c) (&return c) &fail)]))
+(def &hexadecimal-digit (&let [c &read-char x (if (hexadecimal-digit? c) (&return c) &fail)]))
+
 (def &octal-char
   (&let [o0 &octal-digit o1 &octal-digit o2 &octal-digit] (char (int<-digits 8 o0 o1 o2))))
-
-(defn decimal-digit [c]
-  (when-let [n (and c (int c))]
-    (when (<= (int \0) n (int \9)) (- n (int \0)))))
-(def &decimal-digit (&let [c &read-char x (if (decimal-digit c) (&return c) &fail)]))
-
-(defn hexadecimal-digit [c]
-  (when-let [n (and c (int c))]
-    (cond (<= (int \0) n (int \9)) (- n (int \0))
-          (<= (int \a) n (int \f)) (+ n (- 10 (int \a)))
-          (<= (int \A) n (int \F)) (+ n (- 10 (int \A))))))
-(def &hexadecimal-digit (&let [c &read-char x (if (hexadecimal-digit c) (&return c) &fail)]))
 (def &latin1-char
   (&let [x0 &hexadecimal-digit x1 &hexadecimal-digit] (char (int<-digits 16 x0 x1))))
 (def &unicode-char-16
@@ -184,7 +164,7 @@
           \x &latin1-char ;; \xhh Character with hex value hh
           \u (if b &fail &unicode-char-16) ;; \uxxxx Character with 16-bit hex value xxxx
           \U (if b &fail &unicode-char-32) ;; \Uxxxxxxxx Character with 32-bit hex value xxxxxxxx
-          (if (octal-digit c) &octal-char &fail)))]))
+          (if (octal-digit? c) &octal-char &fail)))]))
 
 (defn ascii-char? [c] (and (char? c) (< (int c) 128)))
 
@@ -206,11 +186,11 @@
 (def &string-literal
   (&let
    ;; Python 3 only has U, R, B BR (case insensitive, order insensitive)
-   [ubr (&optional (&let [c (&char-if #{\u \U \b \B \r \R})] (char-lower-case c)))
+   [ubr (&optional (&let [c (&char-if #{\u \U \b \B \r \R})] (downcase-char c)))
     br (cond (= ubr \b) (&optional (&char-if #{\r \R}))
              (= ubr \r) (&optional (&char-if #{\b \B}))
              :else &nil)
-    [b r] (&return (let [br (char-lower-case br)]
+    [b r] (&return (let [br (downcase-char br)]
                      \u [false false]
                      \r [(= br \b) true]
                      \b [true (= br \r)]
@@ -220,7 +200,7 @@
     _ (&string-end-quote long? q)]
    [(if b :bytes :string) s]))
 
-(defn &intpart [prefix] (&conj+ (&char-if decimal-digit) prefix))
+(defn &intpart [prefix] (&conj+ (&char-if digit?) prefix))
 (defn &fraction [prefix] (&do (&char= \.) (&intpart (conj prefix \.))))
 (defn &exponent [prefix]
   (&let [c (&char-if #{\e \E})
@@ -234,9 +214,9 @@
         [:float (Double/parseDouble (stringify x))]))
 
 (defn integerize [x] (+ 0N (clojure.core/read-string (stringify x))))
-(def &decimal-integer (&chars (&char-if decimal-digit) '("10r") integerize))
-(def &octal-integer (&chars (&char-if octal-digit) '("8r") integerize))
-(def &hexadecimal-integer (&chars (&char-if hexadecimal-digit) '("16r") integerize))
+(def &decimal-integer (&chars (&char-if digit?) '("10r") integerize))
+(def &octal-integer (&chars (&char-if octal-digit?) '("8r") integerize))
+(def &hexadecimal-integer (&chars (&char-if hexadecimal-digit?) '("16r") integerize))
 (def &binary-integer (&chars (&char-if #{\0 \1}) '("2r") integerize))
 
 (def &integer-literal
@@ -246,9 +226,9 @@
                             (fn [c] (cond (#{\o \O} c) (&do &read-char &octal-integer)
                                           (#{\x \X} c) (&do &read-char &hexadecimal-integer)
                                           (#{\b \B} c) (&do &read-char &binary-integer)
-                                          ;; (octal-digit c) &octal-integer ;; Python 2 ism
+                                          ;; (octal-digit? c) &octal-integer ;; Python 2 ism
                                           :else (&do (&repeat (&char= \0)) (&return 0N)))))
-            (decimal-digit c) &decimal-integer
+            (digit? c) &decimal-integer
             :else &fail)]
     [:integer i]))
 (def &numeric-literal

@@ -5,18 +5,11 @@
             [clojure.math.numeric-tower :as math])
   (:use [clojure.core.match :only [match]]
         [skylark.debug]
-        [skylark.utilities]))
+        [skylark.utilities]
+        [skylark.names]
+        [skylark.mop]))
 
 ;; https://docs.python.org/3/library/operator.html
-;; https://docs.python.org/3/reference/datamodel.html#customization
-
-(def $initial-environment {})
-
-(defn register-initial-binding [s v]
-  (set! $initial-environment (conj $initial-environment [s v])))
-
-(defn $class [object] (NFN))
-(defn $get-method [class name] (NFN))
 
 (def $bytes (Class/forName "[B"))
 (defn byte-array? [x] (= (type x) $bytes))
@@ -27,9 +20,8 @@
 (defn runtime-symbol [x]
   (symbol 'skylark.runtime (str \$ (name x))))
 
-(def $None :None)
-(def $NoneType ;; python singleton None
-  {:isinstance? #(= % $None)})
+
+;; TODO: MOP for a class visible in skylark
 
 (defn builtin? [x]
   (or (= x $None) (list? x)
@@ -43,18 +35,18 @@
 (defn easy-falsity? [x]
   ;; NB: [] catches (), but empty byte-array isn't caught.
   (or (not x) (boolean (#{[] {} #{} 0 0M 0.0 "" $None} x))))
-(def $False false)
+(def-py $False false)
 (def $easy-falsity ;; python easy falsity
   {:isinstance? easy-falsity?})
 
 (defn easy-truth? [x]
   (or (= x true) (and (not (easy-falsity? x)) (builtin? x))))
-(def $True true)
+(def-py $True true)
 (def $easy-truth ;; python easy truth
   {:isinstance? easy-truth?})
 
 (def $empty-list [])
-(def $list ;; python list
+(def-py $list ;; python list, must be both a type and a callable
   {:isinstance? list?})
 
 (def $empty-tuple [])
@@ -90,7 +82,7 @@
               (partition 2 body)))))
 
 (defn subtle-truth? [x]
-  (let [c ($class x)]
+  (let [c ($get-class x )]
      (if-let [m ($get-method c '__bool__)] (not= $False (m x)) ;; TODO: implement for $bytes
        (if-let [m ($get-method c '__len__)] (not= 0 (m x))
           true))))
