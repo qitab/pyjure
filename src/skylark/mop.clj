@@ -1,12 +1,12 @@
-(ns skylark.mop
+(ns pyjure.mop
   (:require [clojure.core :as c]
             [clojure.string :as str])
   (:use [clojure.core.match :only [match]]
-        [skylark.debug]
-        [skylark.utilities]
-        [skylark.names]))
+        [pyjure.debug]
+        [pyjure.utilities]
+        [pyjure.names]))
 
-;; Meta-Object Protocol for skylark objects
+;; Meta-Object Protocol for pyjure objects
 
 ;; https://docs.python.org/3/reference/datamodel.html#customization
 ;; https://docs.python.org/3/library/stdtypes.html#object.__dict__

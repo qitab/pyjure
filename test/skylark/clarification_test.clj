@@ -1,11 +1,11 @@
-(ns skylark.clarification-test
+(ns pyjure.clarification-test
   (:use [clojure.test]
         [clojure.core.match :only [match]]
-        [skylark.core-test]
-        [skylark.utilities]
-        [skylark.parsing]
-        [skylark.clarification])
-  (:require [skylark.core :as sky]))
+        [pyjure.core-test]
+        [pyjure.utilities]
+        [pyjure.parsing]
+        [pyjure.clarification])
+  (:require [pyjure.core :as sky]))
 
 (deftest clarification-test
   (testing "Every python function scope clarification"

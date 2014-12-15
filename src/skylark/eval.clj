@@ -1,10 +1,10 @@
-(ns skylark.eval
+(ns pyjure.eval
   (:use [clojure.core.match :only [match]]
-        [skylark.debug :exclude [evaluate]]
-        [skylark.utilities]
-        [skylark.parsing]
-        [skylark.runtime]))
+        [pyjure.debug :exclude [evaluate]]
+        [pyjure.utilities]
+        [pyjure.parsing]
+        [pyjure.runtime]))
 
 (defn evaluate [x]
-  (binding [*ns* (find-ns (or (:namespace (meta x)) 'skylark.user))]
+  (binding [*ns* (find-ns (or (:namespace (meta x)) 'pyjure.user))]
     (eval x)))

@@ -1,11 +1,11 @@
-(ns skylark.parser-test
+(ns pyjure.parser-test
   (:use [clojure.test]
         [clojure.core.match :only [match]]
-        [skylark.core-test]
-        [skylark.utilities]
-        [skylark.parsing]
-        [skylark.parser])
-  (:require [skylark.core :as sky]
+        [pyjure.core-test]
+        [pyjure.utilities]
+        [pyjure.parsing]
+        [pyjure.parser])
+  (:require [pyjure.core :as sky]
             [clojure.string :as str]))
 
 (defn test-parse [input] (tryf #(sky/parse input)))

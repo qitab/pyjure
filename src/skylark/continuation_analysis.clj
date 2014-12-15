@@ -1,9 +1,9 @@
-(ns skylark.continuation-analysis
+(ns pyjure.continuation-analysis
   (:use [clojure.core.match :only [match]]
-        [skylark.debug :exclude [analyze-continuations]]
-        [skylark.utilities]
-        [skylark.parsing]
-        [skylark.runtime]))
+        [pyjure.debug :exclude [analyze-continuations]]
+        [pyjure.utilities]
+        [pyjure.parsing]
+        [pyjure.runtime]))
 
 (comment
 "

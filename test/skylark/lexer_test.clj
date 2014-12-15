@@ -1,12 +1,12 @@
-(ns skylark.lexer-test
+(ns pyjure.lexer-test
   (:require [leijure.delta-position :as delta]
             [clojure.string :as str]
             [clojure.set :as set]
-            [skylark.core :as sky])
-  (:use [skylark.core-test]
-        [skylark.utilities]
-        [skylark.parsing]
-        [skylark.lexer]
+            [pyjure.core :as sky])
+  (:use [pyjure.core-test]
+        [pyjure.utilities]
+        [pyjure.parsing]
+        [pyjure.lexer]
         [clojure.test]))
 
 (defn simplify [a] {:pre (vector? a)} (if (= (count a) 1) (first a) a))

@@ -1,22 +1,22 @@
-;; skylark.core: this file just combines together all the compilation passes.
-(ns skylark.core
+;; pyjure.core: this file just combines together all the compilation passes.
+(ns pyjure.core
   (:use [clojure.tools.trace]
         ;;[clojure.tools.nrepl]
         [clojure.repl]
         [clojure.test])
   ;;; Our passes, in order:
-  (:require [skylark.utilities :as utilities]
+  (:require [pyjure.utilities :as utilities]
             [leijure.delta-position :as position]
-            [skylark.lexer :as lexer]
-            [skylark.parser :as parser]
-            [skylark.desugar :as desugar]
-            [skylark.clarification :as clarification]
-            [skylark.cleanup :as cleanup]
-            [skylark.continuation-analysis :as continuation-analysis]
-            [skylark.effect-analysis :as effect-analysis]
-            [skylark.clojurifier :as clojurifier]
-            [skylark.eval :as eval]
-            [skylark.user :as user]))
+            [pyjure.lexer :as lexer]
+            [pyjure.parser :as parser]
+            [pyjure.desugar :as desugar]
+            [pyjure.clarification :as clarification]
+            [pyjure.cleanup :as cleanup]
+            [pyjure.continuation-analysis :as continuation-analysis]
+            [pyjure.effect-analysis :as effect-analysis]
+            [pyjure.clojurifier :as clojurifier]
+            [pyjure.eval :as eval]
+            [pyjure.user :as user]))
 
 (def passes
   [;; * → [reader:java.io.Reader filename:String]
@@ -58,7 +58,7 @@
 
    ;; control flow via 0CFA (?)
 
-   ;; → converting to clojure code, executable with skylark.runtime
+   ;; → converting to clojure code, executable with pyjure.runtime
    :clojurify #'clojurifier/clojurify
 
    ;; → evaluate
@@ -67,9 +67,9 @@
 
 ;; Which vars should we bind from this list?
 ;; (->> (all-ns) (mapcat ns-publics) (map second) (filter (comp :dynamic meta)))
-(defn skylark
-  ([input] (skylark nil input))
-  ([last-pass input] (skylark nil last-pass input))
+(defn pyjure
+  ([input] (pyjure nil input))
+  ([last-pass input] (pyjure nil last-pass input))
   ([first-pass last-pass input]
      (loop [x input
             p (let [i (.indexOf passes first-pass)]
@@ -80,7 +80,7 @@
 
 (defmacro def-funs []
   `(do ~@(map (fn [[name _]]
-                `(defn ~(symbol (.getName name)) [~'x] (skylark ~name ~'x)))
+                `(defn ~(symbol (.getName name)) [~'x] (pyjure ~name ~'x)))
               (partition 2 passes))))
 
 (def-funs)

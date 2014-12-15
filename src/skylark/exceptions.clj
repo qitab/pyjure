@@ -1,8 +1,8 @@
-(ns skylark.exceptions
+(ns pyjure.exceptions
   (:use [clojure.core.match :only [match]]
-        [skylark.utilities]
-        [skylark.runtime]
-        [skylark.exceptions]))
+        [pyjure.utilities]
+        [pyjure.runtime]
+        [pyjure.exceptions]))
 
 (defn no-$-symbol [s]
   (let [s (str s)]

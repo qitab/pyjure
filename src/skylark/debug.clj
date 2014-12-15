@@ -1,17 +1,17 @@
-(ns skylark.debug
+(ns pyjure.debug
   (:use [clojure.pprint :only [cl-format]]
-        [skylark.utilities])
+        [pyjure.utilities])
   (:require [clojure.repl]
             [clojure.tools.trace]))
 
-;; debugging utilities while developing skylark
+;; debugging utilities while developing pyjure
 
 (reexport clojure.repl apropos pst)
 (reexport-macro clojure.repl doc)
 (reexport-macro clojure.tools.trace trace untrace)
 
-(reexport-deferred skylark.core
-  skylark to-reader position-stream lex parse desugar clarify cleanup analyze-continuations clojurify)
+(reexport-deferred pyjure.core
+  pyjure to-reader position-stream lex parse desugar clarify cleanup analyze-continuations clojurify)
 
 (defn tracing [name f]
   (fn [& args]

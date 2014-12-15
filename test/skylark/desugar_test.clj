@@ -1,11 +1,11 @@
-(ns skylark.desugar-test
+(ns pyjure.desugar-test
   (:use [clojure.test]
         [clojure.core.match :only [match]]
-        [skylark.core-test]
-        [skylark.utilities]
-        [skylark.parsing]
-        [skylark.desugar])
-  (:require [skylark.core :as sky]))
+        [pyjure.core-test]
+        [pyjure.utilities]
+        [pyjure.parsing]
+        [pyjure.desugar])
+  (:require [pyjure.core :as sky]))
 
 (defn test-desugar [input] (tryf #(sky/desugar input)))
 

@@ -1,9 +1,9 @@
-(ns skylark.effect-analysis
+(ns pyjure.effect-analysis
   (:use [clojure.core.match :only [match]]
-        [skylark.debug :exclude [analyze-effects]]
-        [skylark.utilities]
-        [skylark.parsing]
-        [skylark.runtime]))
+        [pyjure.debug :exclude [analyze-effects]]
+        [pyjure.utilities]
+        [pyjure.parsing]
+        [pyjure.runtime]))
 
 (comment
 "TODO? rename this pass appropriately when it's done. type_analysis_1 ?

@@ -1,6 +1,5 @@
-Rename skylark to pyjure...
+Random TODO items for this Pyjure implementation in Clojure
 
-Random TODO items for this skylark implementation in Clojure
 * write down some examples of generated code
    have a collection of simple functions that span
    the entire base language and its various interactions,
@@ -126,7 +125,7 @@ Random TODO items for this skylark implementation in Clojure
 * figure out how exceptions interact with shadowing of local bindings.
    In Python, x = v is a variable assignment side-effect, so
    the handler and continuation see the modified variables.
-   In Skylark, x = v is the shadowing of a binding, so
+   In Pyjure, x = v is the shadowing of a binding, so
    the handler and continuation see the original bindings.
 
 for target in gen:

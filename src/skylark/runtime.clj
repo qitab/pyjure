@@ -1,13 +1,13 @@
-(ns skylark.runtime
+(ns pyjure.runtime
   (:require [clojure.core :as c]
             [clojure.string :as str]
             [clojure.set :as set]
             [clojure.math.numeric-tower :as math])
   (:use [clojure.core.match :only [match]]
-        [skylark.debug]
-        [skylark.utilities]
-        [skylark.names]
-        [skylark.mop]))
+        [pyjure.debug]
+        [pyjure.utilities]
+        [pyjure.names]
+        [pyjure.mop]))
 
 ;; https://docs.python.org/3/library/operator.html
 
@@ -18,10 +18,10 @@
   (or (integer? x) (float? x) (string? x) (byte-array? x)))
 
 (defn runtime-symbol [x]
-  (symbol 'skylark.runtime (str \$ (name x))))
+  (symbol 'pyjure.runtime (str \$ (name x))))
 
 
-;; TODO: MOP for a class visible in skylark
+;; TODO: MOP for a class visible in pyjure
 
 (defn builtin? [x]
   (or (= x $None) (list? x)
@@ -72,7 +72,7 @@
                formals types)))
 
 (defmacro define-operation [name formals & body]
-  ;; TODO: 1- automate the name munging from parser keyword to clojure symbol to skylark binding
+  ;; TODO: 1- automate the name munging from parser keyword to clojure symbol to pyjure binding
   ;; 2- define underlying generic function, declare methods, etc.
   ;; 3- in the future, do type-directed inlining.
   `(defn ~name ~formals

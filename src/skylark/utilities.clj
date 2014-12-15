@@ -1,4 +1,4 @@
-(ns skylark.utilities
+(ns pyjure.utilities
   [:require [clojure.repl]])
 
 ;; Miscellaneous general purpose utilities.

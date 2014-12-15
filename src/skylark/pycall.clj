@@ -1,8 +1,8 @@
-(ns skylark.pycall
+(ns pyjure.pycall
   (:use [clojure.core.match :only [match]]
-        [skylark.utilities]
-        [skylark.runtime]
-        [skylark.exceptions]))
+        [pyjure.utilities]
+        [pyjure.runtime]
+        [pyjure.exceptions]))
 
 ;; This file handles the semantics of python-like calling conventions
 ;; https://docs.python.org/3.3/reference/expressions.html#calls

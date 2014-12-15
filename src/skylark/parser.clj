@@ -1,9 +1,9 @@
-(ns skylark.parser
+(ns pyjure.parser
   (:require [clojure.string :as str])
   (:use [clojure.core.match :only [match]]
-        [skylark.debug :exclude [parse]]
-        [skylark.utilities]
-        [skylark.parsing]))
+        [pyjure.debug :exclude [parse]]
+        [pyjure.utilities]
+        [pyjure.parsing]))
 
 ;; This is largely based on the Python 3.5 grammar
 ;; Python 3 grammar: https://docs.python.org/3.5/reference/grammar.html

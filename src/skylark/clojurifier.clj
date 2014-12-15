@@ -1,12 +1,12 @@
-(ns skylark.clojurifier
-  (:require [skylark.continuation-analysis :as ka]
-            [skylark.effect-analysis :as fxa]
-            [skylark.debug :as sky])
+(ns pyjure.clojurifier
+  (:require [pyjure.continuation-analysis :as ka]
+            [pyjure.effect-analysis :as fxa]
+            [pyjure.debug :as sky])
   (:use [clojure.core.match :only [match]]
-        [skylark.debug :exclude [clojurify]]
-        [skylark.utilities]
-        [skylark.parsing]
-        [skylark.runtime]))
+        [pyjure.debug :exclude [clojurify]]
+        [pyjure.utilities]
+        [pyjure.parsing]
+        [pyjure.runtime]))
 
 ;; TODO: transform every branch point into binding-passing style?
 

@@ -1,12 +1,12 @@
-(ns skylark.continuation-analysis-test
+(ns pyjure.continuation-analysis-test
   (:use [clojure.test]
         [clojure.core.match :only [match]]
-        [skylark.debug :exclude [analyze-continuations]]
-        [skylark.core-test]
-        [skylark.utilities]
-        [skylark.parsing]
-        [skylark.continuation-analysis])
-  (:require [skylark.core :as sky]))
+        [pyjure.debug :exclude [analyze-continuations]]
+        [pyjure.core-test]
+        [pyjure.utilities]
+        [pyjure.parsing]
+        [pyjure.continuation-analysis])
+  (:require [pyjure.core :as sky]))
 
 (deftest continuation-analysis-test
   (comment

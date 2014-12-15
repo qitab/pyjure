@@ -1,8 +1,8 @@
-(ns skylark.clarification
+(ns pyjure.clarification
   (:use [clojure.core.match :only [match]]
-        [skylark.utilities]
-        [skylark.parsing]
-        [skylark.runtime]))
+        [pyjure.utilities]
+        [pyjure.parsing]
+        [pyjure.runtime]))
 
 ;; This pass will
 ;; * identify for each scope (function or class)
@@ -15,7 +15,7 @@
 ;; * TODO distinguish module, class and def contexts, and only allow yield and return in def context.
 ;; * TODO? if we allow for lexical macros, these passes must be merged.
 ;; * TODO? detect other syntactically present side-effects in the function
-;;  (e.g. skylark rule definition, incremental class definition, etc.)
+;;  (e.g. pyjure rule definition, incremental class definition, etc.)
 ;;
 ;; Invariant: if the pass returns without an error, only metadata is changed.
 ;;

@@ -1,4 +1,4 @@
-# This file should run without any error with python, python3, skylark.
+# This file should run without any error with python, python3, pyjure.
 
 # for assertions: <Yhg1s> Fare: exception objects usually have an 'args' attribute that is their associated data. It differs per exception type.
 

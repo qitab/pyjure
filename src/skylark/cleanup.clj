@@ -1,7 +1,7 @@
-(ns skylark.cleanup
+(ns pyjure.cleanup
   (:use [clojure.core.match :only [match]]
-        [skylark.debug :exclude [cleanup]]
-        [skylark.utilities]))
+        [pyjure.debug :exclude [cleanup]]
+        [pyjure.utilities]))
 
 ;; TODO? maintain a lexical environment, resolve bindings,
 ;;       error on binding any but a local variable.

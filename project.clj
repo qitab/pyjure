@@ -1,9 +1,9 @@
-(defproject skylark "0.0.1-SNAPSHOT"
-  :description "Experimental implementation of Skylark in Clojure"
+(defproject pyjure "0.0.1-SNAPSHOT"
+  :description "Pyjure, a pure dialect of Python, as implemented in Clojure"
   ;; :url "TBD"
   :license {:name "Apache License 2.0"
             :url "http://www.apache.org/licenses/"}
-  :main skylark.core
+  :main pyjure.core
   :dependencies [[org.clojure/clojure "1.6.0"]
                  [leijure/delta-position "0.1.0"]
                  [org.clojure/math.numeric-tower "0.0.4"]

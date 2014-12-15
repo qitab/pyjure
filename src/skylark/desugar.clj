@@ -1,7 +1,7 @@
-(ns skylark.desugar
-  (:use [skylark.debug :exclude [desugar]]
-        [skylark.utilities]
-        [skylark.parsing]
+(ns pyjure.desugar
+  (:use [pyjure.debug :exclude [desugar]]
+        [pyjure.utilities]
+        [pyjure.parsing]
         [clojure.core.match :only [match]]))
 
 ;; macroexpand python syntax into a somewhat simpler language:

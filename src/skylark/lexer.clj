@@ -1,9 +1,9 @@
-(ns skylark.lexer
+(ns pyjure.lexer
   (:require [leijure.delta-position :as delta]
             [clojure.string :as str]
             [clojure.set :as set])
-  (:use [skylark.utilities]
-        [skylark.parsing]))
+  (:use [pyjure.utilities]
+        [pyjure.parsing]))
 
 ;; See Python 2 Documentation: https://docs.python.org/2/reference/lexical_analysis.html
 ;; See Python 3 Documentation: https://docs.python.org/3.5/reference/lexical_analysis.html
@@ -97,7 +97,7 @@
            (or (empty? ris) (> column top)) ((&error "invalid dedentation") σ)
            :else (recur ris (tok+ nout :dedent))))))))
 
-(defn sym [x] (keyword x)) ;; (symbol "skylark.semantics" x)
+(defn sym [x] (keyword x)) ;; (symbol "pyjure.semantics" x)
 
 (def keywords ;; keywords in the Python 3 sense, here symbols on the Clojure side.
   (let [l '("False" "None" "True"
@@ -113,7 +113,7 @@
   (&let [c (&char-if letter_?)
          s (&chars (&char-if alphanumeric_?) (list c))]
         (if-let [k (keywords s)]
-          [k] ;; skylark keywords as clojure symbols
+          [k] ;; pyjure keywords as clojure symbols
           [:id s]))) ;; identifiers as strings (for now... can be interned later)
 
 (defn char-name-char? [c] (or (uppercase-letter? c) (= c \space)))

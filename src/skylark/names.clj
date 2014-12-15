@@ -1,6 +1,6 @@
-(ns skylark.names
+(ns pyjure.names
   (:use [clojure.core.match :only [match]]
-        [skylark.utilities]))
+        [pyjure.utilities]))
 
 (def $$base (atom {:__name__ "__base__"}))
 (def $$types (atom {:__name__ "types"}))

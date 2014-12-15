@@ -1,11 +1,11 @@
-(ns skylark.cleanup-test
+(ns pyjure.cleanup-test
   (:use [clojure.test]
         [clojure.core.match :only [match]]
-        [skylark.core-test]
-        [skylark.utilities]
-        [skylark.parsing]
-        [skylark.cleanup])
-  (:require [skylark.core :as sky]))
+        [pyjure.core-test]
+        [pyjure.utilities]
+        [pyjure.parsing]
+        [pyjure.cleanup])
+  (:require [pyjure.core :as sky]))
 
 
 (deftest cleanup-test
