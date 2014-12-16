@@ -11,7 +11,7 @@
   ([l] (vec l))
   ([a l] (into [a] l))
   ([a b l] (into [a b] l))
-  ([a b c & l] (let [v (vec l)] (concat [a b c] (pop v) (last v)))))
+  ([a b c & l] (let [v (vec l)] (into [a b c] (concat (pop v) (last v))))))
 
 (defmacro ignore-errors
   ([x] `(ignore-errors ~x nil))
@@ -288,6 +288,19 @@ The macro expansion has relatively low overhead in space or time."
 (defn downcase-char [c]
   ;; (char (java.lang.Character/toLowerCase (int c)))))
   (when c (if-let [n (uppercase-letter? c)] (char (+ n (int \a))) c)))
+
+
+
+(defn boolean-number
+  "given a list of generalized booleans as arguments, what integer do they encode in little-endian binary?"
+  ([a] (if a 1 0))
+  ([a b] (+ (if a 1 0) (if b 2 0)))
+  ([a b c] (+ (if a 1 0) (if b 2 0) (if c 4 0)))
+  ([a b c d] (+ (if a 1 0) (if b 2 0) (if c 4 0) (if d 8 0)))
+  ([a b c d e] (+ (if a 1 0) (if b 2 0) (if c 4 0) (if d 8 0) (if d 16 0)))
+  ([a b c d e f & g]
+     (loop [l (vec* a b c d e f g) x 1 s 0]
+       (if (seq l) (let [[h & t] l] (recur t (+ x x) (if h (+ s x) s))) s))))
 
 
 ;;; Reexporting things from another namespace

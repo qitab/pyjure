@@ -4,10 +4,6 @@
         [pyjure.runtime]
         [pyjure.exceptions]))
 
-(defn no-$-symbol [s]
-  (let [s (str s)]
-    (assert (= (first s) \$))
-
 (defmacro define-exception [exname bases args fmt]
   (let [pyname (subs (name exname) 1)]
   `(do
@@ -19,5 +15,5 @@
      ~(comment `(defpyclass ~name ~supers
                   (defpyfield format ~fmt)
                   (defpyinit ~name ~args)))
-     (def-py-type ~exname ~(or bases $Exception))
-     (def (
+     ;; (def-py-type ~exname ~(or bases $Exception))
+     (def ~exname ~args ($error '~exname ~fmt ~@args)))))

@@ -139,10 +139,28 @@
                              [:keyarg % (second %2)]
                              [:generator % %2])))
 
+(defn keyarg-default [arg]
+  (match [arg]
+    [[:keyarg _ default]] default
+    :else nil))
+
+(defn &check-args [defining [positional rest key-only krest :as args]]
+  ;; TODO(tunes): check that positional arguments are all together in the front;
+  ;; we can easily make that part of the grammar, unlike in Python; or we can add a check post-parse.
+  ;; However we need a post-parse check anyway to ensure that the same name doesn't happen twice.
+  (let [posdefaults (map keyarg-default positional)
+        optional (keep-indexed #(when %2 %) posdefaults)
+        optional-ok (or (empty? optional) ;; after the first optional,
+                        (= (count positional) ;; all positional arguments have a default value.
+                           (+ (first optional) (count optional))))
+        key-only-ok (or defining (every? #(nth % 3) key-only))] ;; in a call, all keys must have a value
+    (cond
+     (not optional-ok) (&error "invalid positional argument after optional argument")
+     (not key-only-ok) (&error "invalid key argument without a value")
+     :else (&return args))))
+
 (defn &argslist [defining typed]
   ;; NB: Like Python 3, unlike Python 2, we don't allow destructuring of arguments
-  ;; TODO: check that when defining, all arguments after one that has a default also have a default.
-  ;; we can easily make that part of the grammar, unlike in Python; or we can add a check post-parse.
   (let [&args (&non-empty-separated-list
                (if defining
                  (&info (&tag :argument &name
@@ -165,8 +183,8 @@
              (&return [nil nil]))
            keyword-arg
            (if stillmore (&optional (&do (&type :pow) &rarg)) &nil)
-           _ (if (and (nil? keyword-arg) (vector? stillmore)) &fail &nil)]
-          [(vec positional-args) rest-arg (vec more-args) keyword-arg])))
+           _ (if (and (nil? keyword-arg) (vector? stillmore)) &fail &nil)
+           * (&check-args defining [(vec positional-args) rest-arg (vec more-args) keyword-arg])])))
 
 ;; Note: these correspond to _optional_ [*argslist] in the python grammar.
 (def &varargslist (&argslist true false))

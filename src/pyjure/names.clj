@@ -2,8 +2,8 @@
   (:use [clojure.core.match :only [match]]
         [pyjure.utilities]))
 
-(def $$base (atom {:__name__ "__base__"}))
-(def $$types (atom {:__name__ "types"}))
+(defonce $$base (atom {:__name__ "__base__"}))
+(defonce $$types (atom {:__name__ "types"}))
 
 (defn pychar [c]
   (cond (alphanumeric_? c) c
