@@ -13,6 +13,8 @@
   ([a b l] (into [a b] l))
   ([a b c & l] (let [v (vec l)] (into [a b c] (concat (pop v) (last v))))))
 
+(defmacro varmap [& vars] (into {} (vec (map #(vector (keyword %) %) vars))))
+
 (defmacro ignore-errors
   ([x] `(ignore-errors ~x nil))
   ([x y] `(try ~x (catch Exception ~'_ ~y))))

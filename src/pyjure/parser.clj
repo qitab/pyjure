@@ -153,7 +153,7 @@
         optional-ok (or (empty? optional) ;; after the first optional,
                         (= (count positional) ;; all positional arguments have a default value.
                            (+ (first optional) (count optional))))
-        key-only-ok (or defining (every? #(nth % 3) key-only))] ;; in a call, all keys must have a value
+        key-only-ok (or defining (every? keyarg-default key-only))] ;; in a call, all keys must have a value
     (cond
      (not optional-ok) (&error "invalid positional argument after optional argument")
      (not key-only-ok) (&error "invalid key argument without a value")
