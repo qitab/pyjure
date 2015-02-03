@@ -12,6 +12,7 @@
             [pyjure.desugar :as desugar]
             [pyjure.clarification :as clarification]
             [pyjure.cleanup :as cleanup]
+            [pyjure.anormalization :as anormalization]
             [pyjure.continuation-analysis :as continuation-analysis]
             [pyjure.effect-analysis :as effect-analysis]
             [pyjure.clojurifier :as clojurifier]
@@ -40,21 +41,18 @@
    ;; and annotate :function and :class entries with scoping and effect information.
    :clarify #'clarification/clarify
 
-   ;; → AST2: cleanup, with bindings resolved, suites merged, generator functions distinguished,
+   ;; → AST2: cleanup, with bindings resolved, generator functions distinguished,
    ;; some invalid forms filtered, etc. Insert vars for later type analysis.
    :cleanup #'cleanup/cleanup
 
-   ;; TODO:
    ;; → AST3: transform into A-normal form, where all function call arguments are trivial,
-   ;; i.e. constant, function or variable.
-   ;; (maybe do effect analysis first or intermingled, to ensure all variables are bound
-   ;; or always add a binding verification, that will be checked later?)
-   ;; :anormalize #'anormalization/anormalize
+   ;; i.e. constant, function or variable, and suites (once moved out of funcall) are merged.
+   :anormalize #'anormalization/anormalize
 
-   ;; → AST2.1: analyze liveness of variables and effects captured in each statement's continuation.
+   ;; → AST3.1: analyze liveness of variables and effects captured in each statement's continuation.
    :analyze-continuations #'continuation-analysis/analyze-continuations
 
-   ;; → AST2.2: analyze variables initialized and other effects in each statement's past
+   ;; → AST3.2: analyze variables initialized and other effects in each statement's past
    :analyze-effects #'effect-analysis/analyze-effects
 
    ;; control flow via 0CFA (?)

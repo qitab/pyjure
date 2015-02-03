@@ -11,7 +11,7 @@
 (defrecord CallerShape
     [^Integer pos   ;; number of positional arguments
      ^clojure.lang.PersistentVector keys ;; vector of names
-     ^Integer restarg ;; index of the restarg, or false
+     ^Integer restarg ;; index of the restarg, or false (or should we mix * and ** with names?)
      ^Integer kwarg]) ;; index of the kwarg, or false
 
 ;; Every callable function has a CalleeShape, which together with the list of parameter names
@@ -19,12 +19,20 @@
 ;; We separate the names, because if the caller has no keywords,
 ;; we don't include them in the caller-shape-cache key
 ;; Note that some key-only arguments may be required because they have no default value.
+;; For optimization, we want to have the positionals together at the beginning (allowing for
+;; easy tucking of extra hidden bindings in front), group the optionals together,
+;; and leave the * and ** at the end, which leaves the mandatory named-only just before * and **.
+;; The order of arguments will thus be:
+;; mandatory positional parameters, followed by optional positional parameters,
+;; followed by optional keyword parameters, followed by mandatory keyword parameters,
+;; followed by rest list parameter, followed by keyword dictionary parameter.
 (defrecord CalleeShape
-    [^Integer n-mandatory   ;; number of mandatory parameters
-     ^Integer n-positional  ;; number of positional parameters (mandatory + optional (with default))
-     ^Integer n-named       ;; number of named parameters (mandatory + optional + key-only)
-     ^Integer restparm      ;; index of the restparm, or false (n-named or false)
-     ^Integer kwparm])      ;; index of the kwparm, or false (last one, or false)
+    [^Integer mandatory-positional ;; number of mandatory positional parameters
+     ^Integer optional-positional  ;; number of optional positional parameters
+     ^Integer optional-named-only  ;; number of optional named-only parameters
+     ^Integer mandatory-named-only ;; number of mandatory named-only parameters
+     ^Integer restparm             ;; index of the restparm, or false (after all named ones)
+     ^Integer kwparm])	           ;; index of the kwparm, or false (last one)
 
 ;; Function pre-frobber takes a caller-shape and caller-info and returns a frobber function.
 ;; The frobber function takes a callee-shape and callee-names and returns a frob function.
@@ -34,172 +42,261 @@
 ;; Each CallerShape holds a transient cache associating to each callee-shape
 ;; (or pair of callee-shape and callee-names, if it uses keywords) a frob function.
 
+;; trick: default vector include default values for restparm and kwparm
+
 (defn access-cache [cache key default]
   (or (@cache key) (let [val (default)] (ref-set cache (assoc cache key val)) val)))
+
 
 (def caller-shape-cache-cache (ref {}))
 
 (defn caller-shape-cache [caller-shape]
   (access-cache caller-shape-cache-cache caller-shape #(ref {})))
 
-;; Since caller-shape is statically known at every call site,
-;; for each of the 8 combinations of the caller-shape's shape,
-;; we have a specialized pre-frobber.
-
-(defn caller-shape-shape [^CallerShape caller-shape]
-  (let [{:keys [keys restarg kwarg]} caller-shape] ;; note: ignoring pos, for simplification.
-    (boolean-number (not (empty? keys)) restarg kwarg))) ;; (plus? pos)
-
 ;;; Potential Errors
 
-;;(derive ::not-enough-mandatory-arguments :TypeError)
-(defn not-enough-mandatory-arguments [context]
-  ($error :not-enough-mandatory-arguments
+;;(derive ::missing-mandatory-arguments :TypeError)
+(defn missing-mandatory-arguments [context]
+  ($error :missing-enough-mandatory-arguments
           "Not enough mandatory arguments in function call %s" context))
-          [caller-info func caller-shape args callee-shape callee-names]))
-(defn frobber-not-enough-mandatory-arguments [caller-shape callee-shape callee-names caller-info]
-  (fn [args callee-info]
-    (not-enough-mandatory-arguments
-     (varmap caller-shape callee-shape callee-names caller-info args callee-info))))
 
 ;;(derive ::too-many-positional-arguments :TypeError)
 (defn too-many-positional-arguments [context]
   ($error :too-many-positional-arguments
           "Too many positional arguments in function call %s" context))
-(defn frobber-too-many-positional-arguments [caller-shape callee-shape callee-names caller-info]
-  (fn [args callee-info]
-    (too-many-positional-arguments
-     (varmap caller-shape callee-shape callee-names caller-info args callee-info))))
 
+;;(derive ::duplicate-argument :TypeError)
+(defn duplicate-argument [context]
+  ($error :duplicate-argument
+          "keyword argument already specified in function call %s" context))
+
+;;(derive ::unrecognized-argument :TypeError)
+(defn unrecognized-argument [context]
+  ($error :unrecognized-argument
+          "unrecognized keyword argument in function call %s" context))
+
+;; searching for a name is a linear search:
+;; we assume the number of arguments is small, at which point that's faster than any hash-table.
+(defn position [name names] (.indexOf names name)) ;; test: will that work?
 
 ;;; fallback function for the general case
-(defn generic-frob [caller-shape arguments callee-shape callee-names defaults caller-info callee-info]
+(defn generic-frob
+  [^CallerShape caller-shape
+   ^clojure.lang.PersistentVector arguments
+   ^CalleeShape callee-shape
+   ^clojure.lang.PersistentVector callee-names ;; name of the arguments, including restarg and kwarg
+   ^clojure.lang.PersistentVector defaults ;; vector of default values for the default arguments, in order
+   caller-info callee-info]
   ;; returns a vector of values for the callee parameters
   (let [{:keys [pos keys restarg kwarg]} caller-shape
-        {:keys [n-mandatory n-positional n-named restparm kwparm]} callee-shape
+        {:keys [mandatory-positional optional-positional optional-named-only mandatory-named-only
+                restparm kwparm]} callee-shape
         ;; total number of callee parameters
-        n-parms (+ n-named (boolean-number restparm) (boolean-number kwparm))
+        positional (+ mandatory-positional optional-positional)
+        named-only (+ optional-named-only mandatory-named-only)
+        named (+ positional named-only)
+        parms (+ named (boolean-number restparm) (boolean-number kwparm))
         ;; positional arguments from the caller
         posargs (subvec arguments 0 pos)
         posargsrest (if restarg (into posargs (nth arguments restarg)) posargs)
-        [posvals restval] (if (> (count posargsrest) n-positional)
+        [posvals restval] (if (> (count posargsrest) positional)
                             (if restparm
-                              [(subvec posargsrest 0 n-positional) (subvec posargsrest n-positional)]
-                              ($error :TypeError "Too many positional arguments"))
+                              [(subvec posargsrest 0 positional) (subvec posargsrest positional)]
+                              (too-many-positional-arguments
+                               (varmap caller-shape callee-shape callee-names
+                                       caller-info arguments callee-info)))
                             [posargsrest []])
+        start-optional mandatory-positional
+        end-optional (- named mandatory-named-only)
+        n-posvals (count posvals)
         ;; initialize a transient for parameter values, of size n-parms
-        values (transient (into posvals (repeat (- n-parms (count posvals)) nil)))
-        key-values (map identity keys (subvec arguments pos))
+        values (transient (vec (repeat parms nil)))
+        _ (loop [i 0]
+            (when (< i n-posvals)
+              (assoc! values i (get posvals i))
+              (recur (inc i))))
+        key-values (map identity keys (subvec arguments pos (+ pos (count keys))))
         rest-key-values (if kwarg (seq (arguments kwarg)) [])
         all-key-values (concat key-values rest-key-values)
-        remaining-key-values
-        ;; now for key argument dance
+        remaining-key-values ;; accept keyword arguments
         (loop [kv all-key-values rk {}]
           (if (empty? kv)
             (into {} rk)
             (let [[[k v] r] kv
                   i (position k callee-names)]
-              (if i
+              (if (< -1 i named)
                 (if (nil? (values i))
                   (do (assoc! values i v)
                       (recur r rk))
-                  ($error :TypeError "keyword argument ~a already specified" k))
-                (if (rk k)
-                  ($error :TypeError "keyword argument ~a already specified" k)
-                  (recur r (conj rk [k v])))))))]
+                  (duplicate-argument
+                   (varmap caller-shape callee-shape callee-names
+                           caller-info arguments callee-info k)))
+                (if kwparm
+                  (if (rk k)
+                    (duplicate-argument
+                     (varmap caller-shape callee-shape callee-names
+                             caller-info arguments callee-info k))
+                    (recur r (conj rk [k v])))
+                  (unrecognized-argument
+                   (varmap caller-shape callee-shape callee-names
+                           caller-info arguments callee-info k)))))))]
     (when restparm (assoc! values restparm restval))
-    (cond kwparm (assoc! values kwparm rk)
-          rk ($error "unrecognized keyword arguments %s" rk))
-    ;; check that everything is initialized
-    (loop [i (count posvals)]
-      (when (< i n-named)
+    (when kwparm (assoc! values kwparm remaining-key-values))
+    ;; check that everything mandatory is initialized
+    (letfn [(check-mandatory [start end]
+              (loop [i start]
+                (when (< i named)
+                  (when (nil? (values i))
+                    (missing-mandatory-arguments
+                     (varmap caller-shape callee-shape callee-names
+                             caller-info arguments callee-info i)))
+                  (recur (inc i)))))]
+      (if (< posvals mandatory-positional)
+        (check-mandatory posvals mandatory-positional))
+      (check-mandatory end-optional named))
+    ;; use defaults, where applies
+    (loop [i (max n-posvals mandatory-positional) j (- i mandatory-positional)]
+      (when (< i end-optional)
         (when (nil? (values i))
-          (let [d (defaults i)]
-            (if (nil? d)
-              ($error "required parameter %a not provided" (callee-names i))
-              (assoc! values i d))))
-        (recur (inc i))))
+          (assoc! values i (defaults j)))
+        (recur (inc i) (inc j))))
     ;; success!
     (persistent! values)))
 
 (defn generic-frobber [caller-shape cache caller-info]
   (fn [callee-shape callee-names]
     (fn [args callee-info]
-      (generic-frob caller-shape arguments callee-shape callee-names
+      (generic-frob caller-shape args callee-shape callee-names
                     (:defaults callee-info) caller-info callee-info))))
-
-(defn pre-frobber [^CallerShape caller-shape caller-info]
-  ((nth [#'pre-frobber-0  #'pre-frobber-1  #'pre-frobber-2  #'pre-frobber-3
-         #'pre-frobber-4  #'pre-frobber-5  #'pre-frobber-6  #'pre-frobber-7]
-        (caller-shape-shape caller-shape))
-   caller-shape (caller-shape-cache caller-shape) caller-info))
-
 
 (defn frobber-id [pos] ;; simplest case: everything identical!
   (fn [args func] args))
 
-(defn frobber-pos-defaults [pos] ;; next simplest case: copy some, then initialize defaults
-  (fn [args func] (vec (concat args (subvec (:param-defaults func) pos)))))
+(defn frobber-pos-defaults [pos start-defaults] ;; next simplest case: copy some, then initialize defaults
+  (fn [args func] (vec (concat args (subvec (:param-defaults func) start-defaults)))))
 
-(defn frobber-pos-restparm [pos n-named]
-  (fn [args func] (conj (subvec args 0 pos) (subvec args pos))))
+(defn frobber-pos-restparm [pos start-defaults restparm]
+  (fn [args func] (vec (concat (subvec args 0 pos)
+                               (subvec (:param-defaults func) start-defaults restparm)
+                               (list (subvec args pos))))))
 
-(defn frobber-pos-restparm-kwparm [pos n-named]
-  (fn [args func] (into $empty-list (concat (subvec args 0 pos) (subvec args pos)))))
+(defn frobber-pos-restparm-kwparm [pos start-defaults restparm]
+  (fn [args func] (vec (concat (subvec args 0 pos)
+                               (subvec (:param-defaults func) start-defaults restparm)
+                               (list (subvec args pos) {})))))
 
-;; no restarg, no keys, no kwarg
+;; Caller has no restarg, no keys, no kwarg
 (defn pre-frobber-0 [^CallerShape caller-shape caller-info]
   (let [{pos :pos} caller-shape]
     (fn [^CalleeShape callee-shape ^clojure.lang.PersistentVector callee-names]
-      (let [{:keys [n-mandatory n-positional n-named restparm kwparm]} callee-shape]
-        ;; fail fast rather than use the cache
-        (cond
-         (< pos n-mandatory)
-         (frobber-not-enough-mandatory-arguments caller-shape callee-shape callee-names caller-info)
-         (and (> pos n-positional) (not restparm))
-         (frobber-too-many-positional-arguments caller-shape callee-shape callee-names caller-info)
-         :else
-         (access-cache
-          (caller-shape-cache caller-shape)
-          #(case (boolean-number (< pos n-named) restparm kwparm)
-             0 (frobber-id pos)
-             (1 3 4 5 7) (frobber-pos-defaults pos)
-             2 (frobber-pos-restparm pos n-named)
-             6 (frobber-pos-restparm-kwparm pos n-named))))))))
+      (let [{:keys [mandatory-positional optional-positional optional-named-only mandatory-named-only
+                    restparm kwparm]} callee-shape
+            positional (+ mandatory-positional optional-positional)
+            named-only (+ optional-named-only mandatory-named-only)
+            named (+ positional named-only)
+            start-defaults (- pos mandatory-positional)] ;; assume mandatory-named-only is zero
+        ;; In cases known to fail, fail fast rather than use the cache
+        (if (or (< pos mandatory-positional) (< 0 mandatory-named-only)
+                (and (> pos positional) (not restparm)))
+          (generic-frobber caller-shape callee-shape callee-names caller-info) ; let it fail
+          (access-cache
+           (caller-shape-cache caller-shape)
+           (if (and restparm (< positional pos))
+             (if kwparm
+               (frobber-pos-restparm-kwparm pos start-defaults restparm)
+               (frobber-pos-restparm pos start-defaults restparm))
+             (if (or (< pos named) restparm kwparm)
+               (frobber-pos-defaults pos start-defaults)
+               (frobber-id pos)))))))))
 
-;; restarg, no keys, no kwarg
-;; TODO(tunes): fix it (currently just copy/pasted from -0)
+(defn no-key-frob
+  [^CallerShape caller-shape
+   ^clojure.lang.PersistentVector arguments
+   ^CalleeShape callee-shape
+   ^clojure.lang.PersistentVector callee-names ;; name of the arguments, including restarg and kwarg
+   ^clojure.lang.PersistentVector defaults ;; vector of default values for the default arguments, in order
+   caller-info callee-info]
+  ;; returns a vector of values for the callee parameters
+  (let [{:keys [pos keys restarg kwarg]} caller-shape
+        {:keys [mandatory-positional optional-positional optional-named-only
+                ;; mandatory-named-only is zero by this point
+                restparm kwparm]} callee-shape
+        ;; total number of callee parameters
+        positional (+ mandatory-positional optional-positional)
+        named-only optional-named-only
+        ;; total number of callee parameters
+        named (+ positional named-only)
+        parms (+ named (boolean-number restparm) (boolean-number kwparm))
+        ;; positional arguments from the caller
+        posargs (subvec arguments 0 pos)
+        posargsrest (if restarg (into posargs (nth arguments restarg)) posargs)
+        [posvals restval] (if (> (count posargsrest) positional)
+                            (if restparm
+                              [(subvec posargsrest 0 positional) (subvec posargsrest positional)]
+                              (too-many-positional-arguments
+                               (varmap caller-shape callee-shape callee-names
+                                       caller-info arguments callee-info)))
+                            [posargsrest []])
+        n-posvals (count posvals)
+        ;; initialize a transient for parameter values, of size n-parms
+        values (transient (vec (repeat parms nil)))
+        _ (loop [i 0]
+            (when (< i n-posvals)
+              (assoc! values i (get posvals i))
+              (recur (inc i))))]
+    (when restparm (assoc! values restparm restval))
+    (when kwparm (assoc! values kwparm {}))
+    ;; check that everything mandatory is initialized
+    (when (< n-posvals mandatory-positional)
+      (missing-mandatory-arguments
+       (varmap caller-shape callee-shape callee-names caller-info arguments callee-info)))
+    ;; use defaults, where applies
+    (loop [i n-posvals j (- n-posvals mandatory-positional)]
+      (when (< i named)
+        (assoc! values i (defaults j)))
+      (recur (inc i) (inc j)))
+    ;; success!
+    (persistent! values)))
+
+(defn no-key-frobber [caller-shape cache caller-info]
+  (fn [callee-shape callee-names]
+    (fn [args callee-info]
+      (no-key-frob caller-shape args callee-shape callee-names
+                   (:param-defaults callee-info) caller-info callee-info))))
+
+;; Called has restarg, no keys, no kwarg
 (defn pre-frobber-1 [^CallerShape caller-shape caller-info]
-  (let [{pos :pos} caller-shape]
+  (let [{:keys [pos restarg]} caller-shape]
     (fn [^CalleeShape callee-shape ^clojure.lang.PersistentVector callee-names]
-      (let [{:keys [n-mandatory n-positional n-named restparm kwparm]} callee-shape]
-        ;; fail fast rather than use the cache
-        (cond
-         (< pos n-mandatory)
-         (frobber-need-restarg caller-shape callee-shape caller-info)
-         (and (> pos n-positional) (not restparm))
-         (frobber-too-many-positional-arguments caller-shape callee-shape callee-names caller-info)
-         :else
-         (access-cache
-          (caller-shape-cache caller-shape)
-          #(case (boolean-number (< pos n-named) restparm kwparm)
-             0 (frobber-id pos)
-             (1 3 4 5 7) (frobber-pos-defaults pos)
-             2 (frobber-pos-restparm pos n-named)
-             6 (frobber-pos-restparm-kwparm pos n-named))))))))
+      (let [{:keys [mandatory-positional optional-positional optional-named-only mandatory-named-only
+                    restparm kwparm]} callee-shape
+        ;; total number of callee parameters
+        positional (+ mandatory-positional optional-positional)
+        named-only (+ optional-named-only mandatory-named-only)
+        named (+ positional named-only)
+        start-defaults (- pos mandatory-positional)] ;; assume mandatory-named-only is zero
+        ;; In cases known to fail, fail fast rather than use the cache
+        (if (or (< 0 mandatory-named-only) (and (> pos positional) (not restparm)))
+          (generic-frobber caller-shape callee-shape callee-names caller-info) ; let it fail
+          (access-cache
+           (caller-shape-cache caller-shape)
+           (cond
+            (and restparm (= positional pos) (not kwparm) (not keys))
+            (frobber-id (inc pos))
+            ;; TODO: more magic when (and restparm (= positional pos))
+            ;; and magic still when (and restparm (> pos positional))
+            :else ((no-key-frobber caller-shape nil caller-info) callee-shape callee-names))))))))
 
-(def pre-frobber-2)
-(def pre-frobber-3)
-(def pre-frobber-4)
-(def pre-frobber-5)
-(def pre-frobber-6)
-(def pre-frobber-7)
+(def pre-frobber-2 generic-frobber)
+(def pre-frobber-3 generic-frobber)
 
 (defn pre-frobber [^CallerShape caller-shape caller-info]
-  ((nth [#'pre-frobber-0 #'generic-frobber #'generic-frobber #'generic-frobber
-         #'generic-frobber #'generic-frobber #'generic-frobber #'generic-frobber]
-        (caller-shape-shape caller-shape))
-   caller-shape caller-info))
+  (let [{:keys [pos keys restarg kwarg]} caller-shape] ; ignore pos
+    (if (or kwarg)
+      (generic-frobber caller-shape caller-info)
+      ((nth [#'pre-frobber-0 #'pre-frobber-1 #'pre-frobber-2 #'pre-frobber-3]
+            (boolean-number restarg (not (empty? keys))))
+       caller-shape caller-info))))
 
 ;; have a dispatcher from callee-shape to frobbing function
 
@@ -210,8 +307,3 @@
      ^Integer min-restarg  ;; minimal length for restarg? due to missing mandatory and no caller-kwarg
      ^Integer max-restarg  ;; is there a maximal length for restarg? due to kw-provided optional
      ^clojure.lang.PersistentVector poskeys]))    ;; for each keyarg, in order,
-
-;; searching for a name is a linear search:
-;; we assume the number of arguments is small, at which point that's faster than any hash-table.
-
-(defn position [name names] (.indexOf names name)) ;; test: will that work?

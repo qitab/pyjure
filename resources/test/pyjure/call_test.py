@@ -23,6 +23,10 @@ def h(x,e):
 
 
 g("f(1,2)", [1, 2, 10, 11, (), 12, 13, {}])
+h("f(*[2],*[1])", "SyntaxError: invalid syntax")
+h("f(*[1],2)", "SyntaxError: only named arguments may follow *expression")
+h("f(b=1,2,3)", "SyntaxError: non-keyword arg after keyword arg")
+h("f(a=0,*[1],2)", "SyntaxError: non-keyword arg after keyword arg")
 h("f(b=1,2,3)", "SyntaxError: non-keyword arg after keyword arg")
 g("f(*[1,2,3,4,5,6])", [1, 2, 3, 4, (5, 6), 12, 13, {}])
 g("f(*[1,2,3,4,5,6,7,8])", [1, 2, 3, 4, (5, 6, 7, 8), 12, 13, {}])

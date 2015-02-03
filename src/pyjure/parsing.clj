@@ -109,6 +109,11 @@
     (let [[args star-arg more-args kw-arg] x]
     (&vector (&vec (&map f args)) (f star-arg) (&vec (&map f more-args)) (f kw-arg)))))
 
+(defn map-args [f args]
+  (let [[args star-arg more-args kw-arg] args]
+    [(vec (map f args)) (f star-arg) (vec (map f more-args)) (f kw-arg)]))
+
+
 (defn args-vars [[args star-arg more-args kw-arg]]
   (map first `(~@args ~@(when star-arg (list star-arg))
                ~@more-args ~@(when kw-arg (list kw-arg)))))
@@ -180,3 +185,5 @@
        (let [[v# E#] ((apply ~f x#) E#)]
          (print tag#) (print " <= ") (prn v#)
          [v# E#]))))
+
+

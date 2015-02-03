@@ -10,4 +10,4 @@
 
 (deftest cleanup-test
   (testing "Some cleanups"
-    (is (= (sky/cleanup "") [:module [:None]]))))
+    (is (= (sky/cleanup "") [:module [:suite]]))))

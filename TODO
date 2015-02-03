@@ -1,5 +1,13 @@
 Random TODO items for this Pyjure implementation in Clojure
 
+* Need to actually resolve bindings in cleanup phase.
+   Maybe split in two phases, binding-resolution before A-normalization
+   and suite-simplification after.
+
+* Need to group consecutive function definitions into a recursive
+   letfn (Clojure) / labels (CL) / letrec (Scheme) /
+   let (Haskell, which requires further alpha-conversion)
+
 * write down some examples of generated code
    have a collection of simple functions that span
    the entire base language and its various interactions,
@@ -231,7 +239,8 @@ return a
   Or make it always top of stack at runtime?
   Of course, generators have one more level than other functions...
 
-* Yield can be implemented through a delimcc monad:
+* Yield can be implemented through a delimcc monad, to be added to the
+   monad transformer stack.
    http://okmij.org/ftp/continuations/implementations.html
 
 * Is this a bug in core.match?
@@ -273,6 +282,7 @@ return a
 ;;   Probably a latter pass.
 
 * use core.typed for type analysis?
+  Or retarget to Haskell instead of Clojure?
 
 * each computation happens in a tower of effect monads,
   with effects a subset of the set of all effects.
@@ -317,3 +327,5 @@ env = _Env()
 
 * At some point, deal with at least the easy case of
    https://docs.python.org/3.5/reference/import.html
+** Start with reimplementing the same load that Skylark currently
+   uses.
