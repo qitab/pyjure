@@ -88,7 +88,7 @@
 
 (def &newline (&type :newline))
 
-(defn &mod-expr [m modifier f]
+(defn &mod-expr [m modifier f] ;; modified expression
   (&leti [x m mod (&optional modifier)] (if mod (f x mod) x)))
 
 (defn &op-expr [op m f]

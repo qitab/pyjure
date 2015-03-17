@@ -15,13 +15,16 @@
 ;; of what is local, nonlocal, global, what is yielding, etc., which is done later.
 ;; Or can we simplify it already to e.g. a single clojure-style loop statement?
 ;;
-;; TODO: we might want to  preserve cond instead of if, because we want to avoid chaining
+;; TODO: we might want to preserve cond instead of if, because we want to avoid chaining
 ;; of administrative reductions for chaining of slightly different monads when nesting cases of ifs.
 ;; Or is there a more general way of doing the reductions at compile-time?
 ;;
 ;; * decorators are expanded away
-;; * function definitions transformed in x = function()... ; return None
-;; * lambdas args: value become function (args): return value
+;; * contiguous function definitions "def f1(s1): b1\ndef f2(s2): b2..." transformed in
+;;     letfn [<<f1(s1) b1; return None>>, <<f2(s2) b2; return None>> ...]
+;; * lambdas args: value become letfn [<<lambda (args): return value>>]
+;; * lambda's also become a letfn with a name of $lambda.
+;; * special form :dump for dumping the current environment, useful for toplevel and for objects.
 ;; * comprehensions are transformed into functions that yield
 ;; * augassign are transformed into assignments
 ;; * destructuring-binds are transformed into individual bindings
@@ -44,7 +47,7 @@
 
 
 ;; A macro-environment maps lists of symbols (as in dotted names) to macros
-(def null-macro-environment {})
+(def null-desugar-environment {})
 
 (defn name? [n] (and (vector? n) (every? string? n) (pos? (count n))))
 
@@ -169,6 +172,31 @@
                                  [[name] nil [] nil])))))])))
       (base))))
 
+(defn make-suite [head suite x]
+  (copy-source-info x
+   (match [head]
+     [nil] suite
+     [[:suite & body]] (if (empty? body) suite
+                           (make-suite (first body)
+                                       (make-suite (vec* :suite (rest body)) suite x) x))
+     :else (match [suite]
+             [nil] head
+             [[:suite & body]] (vec* :suite head body)
+             :else (vec :suite head suite)))))
+
+(defn make-defn [name args return-type body suite x]
+  (match [suite]
+    [[:defn defs]]
+    (copy-source-info x [:defn (vec* [name args return-type body] defs)])
+    [[:suite [:defn defs] & more]]
+    (make-suite (vec* :defn [name args return-type body] defs) more x)
+    :else
+    (make-suite [:defn [name args return-type body]] suite x)))
+
+(defn &desugar-suite []
+  ;; TODO: implement this, which requires modifying the monad
+  [])
+
 (defn &desugar [x]
   (letfn [(i [f] (copy-source-info x f))
           (v [& s] (i (vec s)))
@@ -288,8 +316,9 @@
       (expand-decorator x
        #(&let [args (&desugar-args args)
                return-type (&desugar return-type)
-               body (&desugar body)] ;; TODO: desugar in lexical environment
-              (v :bind name (v :function args return-type (v :suite body (v :constant (v :None)))))))
+               body (&desugar body)
+               suite &desugar-suite] ;; TODO: desugar in lexical environment
+              (make-defn name args return-type (v :suite body (v :constant (v :None))) suite x)))
       [[':class name args body decorators]]
       (expand-decorator x ;; TODO? recursively add a @method decorator to all function definitions?
        #(&let [args (&desugar-args args)
@@ -333,5 +362,5 @@
 (def &desugar-args (&args &desugar))
 
 (defn desugar [program]
-  (let [[x E] ((&desugar program) null-macro-environment)]
+  (let [[x E] ((&desugar program) null-desugar-environment)]
     x))
