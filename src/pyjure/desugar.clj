@@ -182,7 +182,7 @@
      :else (match [suite]
              [nil] head
              [[:suite & body]] (vec* :suite head body)
-             :else (vec :suite head suite)))))
+             :else [:suite head suite]))))
 
 (defn make-defn [name args return-type body suite x]
   (match [suite]
@@ -193,9 +193,19 @@
     :else
     (make-suite [:defn [name args return-type body]] suite x)))
 
-(defn &desugar-suite []
-  ;; TODO: implement this, which requires modifying the monad
-  [])
+(defn &pop-suite []
+  (fn [E] (let [s (:suite E)] [(first s) (assoc E :suite (rest s))])))
+
+(defn &desugar-suite
+  ([xs x] (if (empty? xs) (&return nil)
+              (let [[fst & rst] xs]
+                (fn [E] ((&let [a (&desugar fst)
+                                d (&desugar-suite x)]
+                               (make-suite a d x))
+                         (update-in E [:suite] #(cons rst %)))))))
+  ([x] ;; suite
+     (&let [r (&pop-suite)
+            * (&desugar-suite r x)])))
 
 (defn &desugar [x]
   (letfn [(i [f] (copy-source-info x f))
@@ -212,8 +222,9 @@
              ':zero-uple ':empty-list ':empty-dict) & _]] (&return (v :constant x))
       [[(:or ':expression ':interactive) x]] (&desugar x)
       [[':pass]] (&desugar (v :None)) ;; distinguish from an empty :suite, so it can break letfn
+      [[':suite & xs]] (&desugar-suite xs x)
       [[':module & xs]] ;; keep it special, but delegate to suite
-      (&let [xs (&desugar* xs)] (v :module (w :suite xs)))
+      (&let [s (&desugar-suite xs x)] (v :module s))
       ;; :builtin is for recursively desugared code.
       ;; :lt :gt :eq :ge :le :ne :in :is :not-in :is_not are transformed into builtin's as well.
       [[(:or ':builtin ':binop ':unaryop ':handler-bind) op & args]] ;; handler-bind has a var name, not op
@@ -317,7 +328,7 @@
        #(&let [args (&desugar-args args)
                return-type (&desugar return-type)
                body (&desugar body)
-               suite &desugar-suite] ;; TODO: desugar in lexical environment
+               suite (&desugar-suite x)] ;; TODO: desugar in lexical environment
               (make-defn name args return-type (v :suite body (v :constant (v :None))) suite x)))
       [[':class name args body decorators]]
       (expand-decorator x ;; TODO? recursively add a @method decorator to all function definitions?

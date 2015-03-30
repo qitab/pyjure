@@ -5,12 +5,12 @@
         [pyjure.utilities]
         [pyjure.parsing]
         [pyjure.desugar])
-  (:require [pyjure.core :as sky]))
+  (:require [pyjure.core :as py]))
 
-(defn test-desugar [input] (tryf #(sky/desugar input)))
+(defn test-desugar [input] (tryf #(py/desugar input)))
 
 (deftest desugar-test
   ;; (testing "desugar smoketest")
   (testing "Every python desugaring rule"
-    (match [(tryf #(sky/desugar python-test))] [[':module & _]]
+    (match [(tryf #(py/desugar python-test))] [[':module & _]]
            (is (= 1 1)))))
