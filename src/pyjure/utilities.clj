@@ -146,6 +146,10 @@ The macro expansion has relatively low overhead in space or time."
 (defn $syntax-error
   ([x fmt args map] ($error 'syntax-error fmt args
                             (merge map {:expr x :source-info (:source-info x)})))
+  ([x fmt args] (loop [xargs args args [] map {}]
+                  (if-let [[name arg & more] xargs]
+                    (recur more (conj args name) (assoc map name arg))
+                    ($syntax-error fmt args map))))
   ([x fmt] ($syntax-error x fmt [:expr] {}))
   ([x] ($syntax-error x nil nil {})))
 
