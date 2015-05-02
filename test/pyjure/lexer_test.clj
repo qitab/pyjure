@@ -2,7 +2,7 @@
   (:require [leijure.delta-position :as delta]
             [clojure.string :as str]
             [clojure.set :as set]
-            [pyjure.core :as sky])
+            [pyjure.core :as py])
   (:use [pyjure.core-test]
         [pyjure.utilities]
         [pyjure.parsing]
@@ -10,10 +10,10 @@
         [clojure.test]))
 
 (defn simplify [a] {:pre (vector? a)} (if (= (count a) 1) (first a) a))
-(defn test-lex* [input] (tryf #(sky/lex input)))
+(defn test-lex* [input] (tryf #(py/lex input)))
 (defn test-lex [input] (map simplify (test-lex* input)))
 (defn test-lex-position [input] (map #(:source-info (meta %)) (test-lex* input)))
-(defn test& [l input] (tryf #(l (mkLexerState (sky/position-stream input)))))
+(defn test& [l input] (tryf #(l (mkLexerState (py/position-stream input)))))
 
 (deftest lexer-test
   (testing "lexer positions"

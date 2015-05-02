@@ -5,9 +5,9 @@
         [pyjure.utilities]
         [pyjure.parsing]
         [pyjure.cleanup])
-  (:require [pyjure.core :as sky]))
+  (:require [pyjure.core :as py]))
 
 
 (deftest cleanup-test
   (testing "Some cleanups"
-    (is (= (sky/cleanup "") [:module [:suite]]))))
+    (is (= (py/cleanup "") [:module nil]))))

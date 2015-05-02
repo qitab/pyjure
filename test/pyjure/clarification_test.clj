@@ -5,10 +5,10 @@
         [pyjure.utilities]
         [pyjure.parsing]
         [pyjure.clarification])
-  (:require [pyjure.core :as sky]))
+  (:require [pyjure.core :as py]))
 
 (deftest clarification-test
   (testing "Every python function scope clarification"
-    (let [x (sky/desugar python-test)
+    (let [x (py/desugar python-test)
           y (clarify x)]
       (is (= x y)))))

@@ -5,11 +5,11 @@
         [pyjure.utilities]
         [pyjure.parsing]
         [pyjure.parser])
-  (:require [pyjure.core :as sky]
+  (:require [pyjure.core :as py]
             [clojure.string :as str]))
 
-(defn test-parse [input] (tryf #(sky/parse input)))
-(defn test& [l input] (tryf #(l (mkParserState (sky/lex input)))))
+(defn test-parse [input] (tryf #(py/parse input)))
+(defn test& [l input] (tryf #(l (mkParserState (py/lex input)))))
 
 (deftest parser-test
   (testing "parser smoketest"

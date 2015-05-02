@@ -6,11 +6,11 @@
         [pyjure.utilities]
         [pyjure.parsing]
         [pyjure.continuation-analysis])
-  (:require [pyjure.core :as sky]))
+  (:require [pyjure.core :as py]))
 
 (deftest continuation-analysis-test
   (comment
   (testing "continuation-analysis only touches meta-data"
-    (let [x (sky/cleanup python-test)
+    (let [x (py/cleanup python-test)
           [y E] (analyze-continuations x)]
       (is (= x y))))))
