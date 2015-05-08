@@ -35,7 +35,7 @@
           (:class) (let [[name args body] s] (v :class name (c-args args) (c body)))
           ;; Generators: mark them as their own thing.
           ;; If delimited continuations are available, macroexpand to a wrapper that uses them here.
-          (:function)
+          (:defn)
           (let [[args return-type body] s
                 tag (if (:generator? (meta x)) :generator :function)]
             ;; TODO: either use a different code generator, or implement and use delimited continuations

@@ -60,6 +60,18 @@
       ($syntax-error x "invalid yield")))
   E)
 
+(comment
+(defn &C-function [x head args return-type body]
+  (letfn [(M [n & a] (with-meta (vec (concat head a)) (merge m n)))]
+    (&let [args (&Cargs args) ; handle type and default
+           return-type (&C return-type)]
+          (let [[_ innerE] ((&map #(&assoc-in [:vars %] {:bound? true :locality :param})
+                                  (args-vars args)) nil)
+                [body innerE] ((&C body) innerE)]
+            (with-meta (into head [:function args return-type body])
+              (merge (meta x) (check-effects x innerE true))))))))
+
+
 (defn &C [x]
   (let [m (meta x)]
     (letfn [(v [& a] (with-meta (vec a) m))
@@ -110,6 +122,16 @@
                         [body innerE] ((&C body) innerE)]
                     (M (check-effects x innerE true)
                        :function args return-type body))))
+        [[:defn definitions body]]
+        ;; TODO: handle this case!
+        (comment ; XXXX
+        (&m (&let [args (&Cargs args) ; handle type and default
+                   return-type (&C return-type)]
+                  (let [[_ innerE] ((&map #(&assoc-in [:vars %] {:bound? true :locality :param})
+                                          (args-vars args)) nil)
+                        [body innerE] ((&C body) innerE)]
+                    (M (check-effects x innerE true)
+                       :function args return-type body)))))
         [[:module s]] (&m (&let [s (&C s)] [:module s]))
         ;; any remaining starred expression is a syntax error
         [[:starred & _]]

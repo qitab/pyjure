@@ -2,6 +2,7 @@
   (:use [pyjure.debug :exclude [desugar]]
         [pyjure.utilities]
         [pyjure.parsing]
+        [pyjure.environment]
         [clojure.core.match :only [match]]))
 
 ;; macroexpand python syntax into a somewhat simpler language:
@@ -21,7 +22,7 @@
 ;;
 ;; * decorators are expanded away
 ;; * contiguous function definitions "def f1(s1): b1\ndef f2(s2): b2..." transformed in
-;;     letfn [<<f1(s1) b1; return None>>, <<f2(s2) b2; return None>> ...]
+;;     defn [<<f1(s1) b1; return None>>, <<f2(s2) b2; return None>> ...]
 ;; * lambdas args: value become letfn [<<lambda (args): return value>>]
 ;; * lambda's also become a letfn with a name of $lambda.
 ;; * special form :dump for dumping the current environment, useful for toplevel and for objects.
@@ -32,6 +33,9 @@
 ;; * multibranch if is replaced by two-branch ifs.
 ;; * boolean operations are expanded into simple ifs
 ;; * nested suites are merged; pass is eliminated
+;;
+;; Being done:
+;; * transform lambda in defn or a gensym then reference.
 ;;
 ;; Not yet(?):
 ;; ? mutual recursion within sub defs??? We want mutually recursive letfn, not let (fn ...) !!!
@@ -44,15 +48,25 @@
 ;; ? d[k] = v ===> d += {k:v}
 ;; ? del d[k] ===> d = $dissoc(d, k)
 ;; ? further pass: A-normal form: only use constants and variables as arguments, not more complex expressions
+;; ? a module, if interactive, will print the result of each toplevel evaluation
+;; ? handle meta-data and source-info more like Racket
 
 
 ;; A macro-environment maps lists of symbols (as in dotted names) to macros
-(def null-desugar-environment {})
+;; :output-suite list of statements in the suite being created (when in desugar-suite mode).
+;; :input-suite statements remaining in the current suite
+;; :more-suites list of continuations of statement suites to desugar (?)
+;; :bindings a map from strings to compile-time-bindings.
+;; :parent a parent environment for lookups
 
-(defn name? [n] (and (vector? n) (every? string? n) (pos? (count n))))
+(defn name? [n]
+  "Is n a qualified pyjure name? i.e. a non-empty vector of strings"
+  (and (vector? n) (every? string? n) (pos? (count n))))
 
 (defn namify [x]
   {:post ((or (name? %) (nil? %)))}
+  "return a qualified pyjure name given an identifier or dotted name
+or identifier qualified by a series of attribute names"
   (match [x]
     [[:id n]] [n]
     [[:dotted-name & ns]] (vec (map second ns))
@@ -60,6 +74,8 @@
     :else nil))
 
 (defn unnamify [n x]
+  "given a qualified pyjure name n and a object x for its source-information,
+return an expanded expression to compute said name"
   {:pre (name? n)}
   (letfn [(v [& args] (copy-source-info x (vec args)))]
     (if (<= 2 (count n))
@@ -67,14 +83,26 @@
       (v :id (first n)))))
 
 (defn &macro [kind n]
-  (fn [E] [(if-let [n (namify n)] (if-let [m (E n)] (m kind))) E]))
+  (match [(namify n)]
+    [([name & more] :seq)]
+    (fn [E]
+      (let [[env _ binding] (compile-time-effect E name kind n)]
+        (loop [binding binding more more]
+          (if (seq more)
+            (if (and (ctb-flags? binding :constant) (instance? (:value binding) pyjure.environment.CompileTimeScope))
+              (recur (:value binding) (rest more))
+              [nil env])
+            (if (ctb-flags? binding :macro)
+              [(:value binding) env]
+              [nil env])))))
+    :else (&return nil)))
 (defn &call-macro [n]
-  (&let [m (&macro :call n)] (when m (fn [x] (fn [E] (m x E))))))
+  (&let [m (&macro :call-referenced n)] (when m (fn [x] (fn [E] (m x E))))))
 (defn &decorator-macro [n]
-  (&let [m (&macro :decorator n)] (when m (fn [args x] (fn [E] (m args x E))))))
+  (&let [m (&macro :decorator-referenced n)] (when m (fn [args x] (fn [E] (m args x E))))))
 (defn &with-macro [x]
   (let [[n args] (match [x] [[':call x args]] [x args] :else [x nil])]
-    (&let [m (&macro :with n)] (when m (fn [args x] (fn [E] (m args x E)))))))
+    (&let [m (&macro :with-referenced n)] (when m (fn [args x] (fn [E] (m args x E)))))))
 
 (def gensym-counter (atom -1))
 (defn $gensym
@@ -90,6 +118,7 @@
 (defn constint [n] [:constant [:integer (+ 0N n)]])
 
 (defn expand-target [x right kind i]
+  ;; TODO: handle += and such by being more like a client to CL's get-setf-expansion, etc.
   (letfn [(c [x] (copy-source-info i x))
           (v [& args] (c (vec args)))
           (D [x right]
@@ -155,7 +184,7 @@
       (v :if (v :builtin :truth test) iftrue (expand-cond moreclauses else x))
       (or else (v :constant (v :None))))))
 
-(defn expand-decorator [x base]
+(defn &expand-decorator [x base]
   (let [decorators (last x)
         name (second x)]
     (if (seq decorators)
@@ -172,40 +201,51 @@
                                  [[name] nil [] nil])))))])))
       (base))))
 
-(defn make-suite [head suite x]
+(defn cons-suite [x head suite]
   (copy-source-info x
    (match [head]
      [nil] suite
      [[:suite & body]] (if (empty? body) suite
-                           (make-suite (first body)
-                                       (make-suite (vec* :suite (rest body)) suite x) x))
+                           (cons-suite x (first body)
+                                       (cons-suite x (vec* :suite (rest body)) suite)))
      :else (match [suite]
              [nil] head
              [[:suite & body]] (vec* :suite head body)
              :else [:suite head suite]))))
+
+(defn make-suite [x list]
+  (reduce #(cons-suite x %2 %1) nil (reverse list)))
 
 (defn make-defn [name args return-type body suite x]
   (match [suite]
     [[:defn defs]]
     (copy-source-info x [:defn (vec* [name args return-type body] defs)])
     [[:suite [:defn defs] & more]]
-    (make-suite (vec* :defn [name args return-type body] defs) more x)
+    (cons-suite x (vec* :defn [name args return-type body] defs) more)
     :else
-    (make-suite [:defn [name args return-type body]] suite x)))
+    (cons-suite x [:defn [name args return-type body]] suite)))
+
+(defn &push-suite
+  ([] (&push-suite []))
+  ([s] (fn [E] (let [r (:suites E)] [nil (assoc E :suites (cons s r))]))))
 
 (defn &pop-suite []
-  (fn [E] (let [s (:suite E)] [(first s) (assoc E :suite (rest s))])))
+  (fn [E] (let [s (:suites E)] [(first s) (assoc E :suites (rest s))])))
 
 (defn &desugar-suite
-  ([xs x] (if (empty? xs) (&return nil)
-              (let [[fst & rst] xs]
-                (fn [E] ((&let [a (&desugar fst)
-                                d (&desugar-suite x)]
-                               (make-suite a d x))
-                         (update-in E [:suite] #(cons rst %)))))))
-  ([x] ;; suite
-     (&let [r (&pop-suite)
-            * (&desugar-suite r x)])))
+  ([xs x] (fn [E]
+            (let [xs (concat xs (first (:suites E)))]
+              (if (empty? xs) (&return nil)
+                  (let [[fst & rst] xs]
+                    ((&let [a (&desugar fst)
+                            d (&desugar-suite x)]
+                           (cons-suite x a d))
+                     (update-in E [:suites] #(cons rst (rest %)))))))))
+  ([x] (&desugar-suite [])))
+
+(defn &expand-macro [form expander] (&bind #(expander form %) &desugar))
+(defn &maybe-expand-macro [form expander else]
+  (if expander (&expand-macro form expander) (else)))
 
 (defn &desugar [x]
   (letfn [(i [f] (copy-source-info x f))
@@ -213,35 +253,66 @@
           (w [& s] (i (apply vec* s)))]
     (match [x]
       [nil] &nil
+
+      [[':call fun args]]
+      (&maybe-expand-macro
+       x (&macro :call-referenced fun)
+       #(&let [fun (&desugar fun)
+               args (&desugar-args args)]
+              (v :call fun args)))
+
+      [[':id name]] ;; TODO: handle lexical bindings in macro environment
+      (&maybe-expand-macro
+       x (&macro :referenced x)
+       #(&return x))
+      [[':def name args return-type body decorators]]
+      (&expand-decorator x
+       #(&let [args (&desugar-args args)
+               return-type (&desugar return-type)
+               body (&desugar body)
+               suite (&desugar-suite x)] ;; TODO: desugar in lexical environment
+              (make-defn name args return-type (v :suite body (v :constant (v :None))) suite x)))
+
       [[':from [dots dottedname] imports]] (do (NFN) (&return x)) ;; (NIY {:r "&desugar from"})
-      [[':import & dotted-as-names]] (&return x) ;; TODO: process import bindings
-      [[(:or ':id ;; TODO: handle lexical bindings in macro environment
-             ':unbind ':constant) & _]] (&return x) ;; these two are for recursive desugaring.
+
+      [[':import & dotted-as-names]] (do (NFN) (&return x)) ;; TODO: process import bindings
+
+      [[(:or ':unbind ':constant) & _]] (&return x) ;; these two are for recursive desugaring.
+
       [[(:or ':integer ':float ':string ':bytes ':imaginary
              ':True ':False ':None ':Ellipsis
              ':zero-uple ':empty-list ':empty-dict) & _]] (&return (v :constant x))
+
       [[(:or ':expression ':interactive) x]] (&desugar x)
+
       [[':pass]] (&desugar (v :None)) ;; distinguish from an empty :suite, so it can break letfn
+
       [[':suite & xs]] (&desugar-suite xs x)
+
       [[':module & xs]] ;; keep it special, but delegate to suite
       (&let [s (&desugar-suite xs x)] (v :module s))
+
       ;; :builtin is for recursively desugared code.
       ;; :lt :gt :eq :ge :le :ne :in :is :not-in :is_not are transformed into builtin's as well.
       [[(:or ':builtin ':binop ':unaryop ':handler-bind) op & args]] ;; handler-bind has a var name, not op
       (&let [as (&desugar* args)] (w :builtin op as))
+
       [[':del _ _ & _]] (&desugar (w :suite (map #(v :del %) (rest x))))
       [[':del [:id n] :as i]] (&return (v :unbind i)) ;; del identifier remains as primitive
-      [[':del [':subscript obj idx]]]
-      (&return (v :builtin :delitem obj idx))
+      [[':del [':subscript obj idx]]] (&return (v :builtin :delitem obj idx))
       [[':del _]] ($syntax-error x "Not a valid thing to del-ete %s")
+
       [[tag :guard #{:bind :argument :except :raise :unwind-protect
                      :suite :while :break :continue :if :yield :yield-from :all} & args]]
       (&let [s (&desugar* args)] (w tag s))
+
       [[tag :guard #{:return :assert :list :dict :set :tuple :slice :subscript} & args]]
       (&let [s (&desugar* args)] (w :builtin tag s))
+
       [[':if-expr test body else]]
       (&let [[test body else] (&desugar* [test body (or else (v :None))])]
             (v :if (v :builtin :truth test) body else))
+
       [[':for target generator body else]]
       (with-gensyms [gen]
         (&desugar
@@ -254,18 +325,25 @@
                   body
                   (v :continue))
                else))))
+
       [[tag :guard #{:global :nonlocal} & args]]
       (if (seq (rest args)) (&desugar (w :suite (map #(v tag %) args))) (&return x))
+
       [[':attribute expr [:id s] :as n]]
       (&let [x (&desugar expr)]
             (v :builtin :attribute x
                (letfn [(c [& x] (copy-source-info n (vec x)))]
                  (c :constant (c :string s)))))
+
       [[':compare left ops args]] (&desugar (expand-compare left ops args x))
+
       [[':cond clauses else]] (&desugar (expand-cond clauses else x))
-      [[':lambda args body]] (&desugar (v :function args nil body))
+
+      [[':lambda args body]] (with-gensyms [fn] (&desugar (v :suite (v :def fn args nil body) fn)))
+
       [[':augassign target iop arg]]
       (&desugar (expand-target target (v :builtin iop target arg) :augassign x))
+
       [[':assign targets expr]]
       (&let [val (&desugar expr)
              z (match [targets]
@@ -276,6 +354,7 @@
                                    (w :suite
                                       (map #(expand-target % g :assign x) (reverse targets))))]
                                (v :suite (v :bind g val) y))))])
+
       [[tag :guard #{:list-comp :dict-comp :set-comp :generator} expr gen]]
       (&desugar
        (v :builtin tag
@@ -289,6 +368,7 @@
                                :else ($syntax-error x "Not a valid comprehension %s"
                                                     [:expr :comp] {:expr x :comp comp}))))
                      (v :yield expr) gen))))
+
       [[':try body excepts else finally]]
       (&desugar
        (let [handled
@@ -317,29 +397,19 @@
                                         clauses))
                               else)))))]
          (if finally (v :unwind-protect handled finally) handled)))
-      [[':call fun args]]
-      (&let [f (&call-macro fun)
-             z (if f (&bind (f x) &desugar)
-                   (&let [fun (&desugar fun)
-                          args (&desugar-args args)]
-                         (v :call fun args)))])
-      [[':def name args return-type body decorators]]
-      (expand-decorator x
-       #(&let [args (&desugar-args args)
-               return-type (&desugar return-type)
-               body (&desugar body)
-               suite (&desugar-suite x)] ;; TODO: desugar in lexical environment
-              (make-defn name args return-type (v :suite body (v :constant (v :None))) suite x)))
+
       [[':class name args body decorators]]
-      (expand-decorator x ;; TODO? recursively add a @method decorator to all function definitions?
+      (&expand-decorator x ;; TODO? recursively add a @method decorator to all function definitions?
        #(&let [args (&desugar-args args)
                body (&desugar body)]
               (v :class name args body)))
+
       [[':function args return-type body]]
       (&let [args (&desugar-args args)
              return-type (&desugar return-type)
              body (&desugar body)]
             (v :function args return-type body))
+
       [[':with items body]]
       (match items
         [] (&desugar body)
@@ -367,11 +437,15 @@
                                      (c :call (c :attribute mgr (c :id "__exit__"))
                                         [[exception-type exception traceback] nil [] nil])
                                      (c :del exception-type exception traceback)))))))]))))
+
       :else ($syntax-error x "Unrecognized form %s"))))
 
 (defn &desugar* [xs] (&map &desugar xs))
 (def &desugar-args (&args &desugar))
 
+(defn initial-desugar-environment []
+  (initial-compile-time-environment))
+
 (defn desugar [program]
-  (let [[x E] ((&desugar program) null-desugar-environment)]
+  (let [[x E] ((&desugar program) (initial-desugar-environment))]
     x))

@@ -18,22 +18,22 @@
      parent ;; a parent RuntimeScope, or nil if top-level
      ^clojure.lang.PersistentVector names]) ;; nil if no introspection
 
-(defrecord CompileTimeEnvironment
-    [lexical-scope ;; nil if at top-level
-     toplevel-scope])
-
 ;;; a scope at compile-time is just a map from string to CompileTimeBinding, and a parent
 (defrecord CompileTimeScope
     [bindings ;; a map from name to binding
      parent]) ;; nil if top-level
 
-(defn scope-toplevel? [scope]
-  ;; works for both RuntimeScope and CompileTimeScope
-  (nil? (:parent scope)))
+(defrecord CompileTimeEnvironment
+    [lexical-scope ;; nil if at top-level
+     toplevel-scope])
+
+(defn toplevel-compile-time-environment [bindings]
+  (->CompileTimeEnvironment nil (->CompileTimeScope bindings nil)))
+
+(defn lexical-compile-time-environment [bindings parent]
+  (->CompileTimeEnvironment (->CompileTimeScope bindings (:lexical-scope parent)) (:toplevel-scope parent)))
 
 ;; flags for a CompileTimeBinding
-(declare +ctb-bits+)
-
 (defn expand-ctb-mask [spec bits]
   (match [spec]
     [_ :guard keyword?] (or (get bits spec) ($syntax-error spec "ctb bit ~s not found" [:spec spec]))
@@ -41,20 +41,18 @@
     [(['and & ms] :seq)] (apply bit-and (map #(expand-ctb-mask % bits) ms))
     [(['not m] :seq)] (bit-not (expand-ctb-mask m bits))))
 
-(defmacro ctb-mask
-  ([spec] (expand-ctb-mask spec +ctb-bits+))
-  ([flags spec] `(bit-and ~flags (ctb-mask ~spec))))
-
 (defmacro def-ctb-bits [specs]
-  (loop [shift 0 mask 1 specs specs bits {} rev {}]
+  (loop [shift 0 mask 1 specs specs bits {} combos {} rev {}]
     (match [specs]
-      [_ :guard empty?] `(do (def +ctb-bits+ '~bits) (def +ctb-bit-name+ '~rev))
+      [_ :guard empty?]
+      `(do (def +ctb-bits+ '~bits) (def +ctb-combos+ '~combos) (def +ctb-bit-name+ '~rev))
       [[[name combo] & more]]
       (let [flags (expand-ctb-mask combo bits)]
-        (recur shift mask more (conj bits [name flags]) (conj rev [flags name])))
+        (recur shift mask more bits (assoc combos name flags) rev))
       [[name & more]]
       (if (>= shift 31) (throw (Exception. "Only 31 bits allowed in a defbits"))
-          (recur (inc shift) (* 2 mask) more (conj bits [name mask]) (conj rev [mask name]))))))
+          (recur (inc shift) (* 2 mask) more
+                 (assoc bits name mask) (assoc combos name mask) (assoc rev mask name))))))
 
 (def-ctb-bits
   [:constant  ; is it a compile-time constant? (NB: it's always immutable at runtime)
@@ -76,7 +74,6 @@
    :decorator-referenced ;; used as decorator
    :with-referenced ;; used as a with annotation
    :expanded ;; was previously resolved as a macro
-   :found ;; for updated-mask only, found in the current scope
    [:annotated (or :typed :dynamic :constant)]
    [:forwarded (or :global :nonlocal)]
    [:defined (or :parameter :def :class)] ;; defined as a regular variable *in this scope*
@@ -84,6 +81,9 @@
    [:macro (or :call-macro :decorator-macro :with-macro :place-macro)]]) ;; bound as any kind of macro in this scope
 
 (defmacro mask? [flags mask] `(pos? (bit-and ~flags ~mask)))
+(defmacro ctb-mask
+  ([spec] (expand-ctb-mask spec +ctb-combos+))
+  ([flags spec] `(bit-and ~flags (ctb-mask ~spec))))
 (defmacro ctb-mask? [flags mask] `(mask? ~flags (ctb-mask ~mask)))
 (defmacro ctb-flags? [binding mask] `(ctb-mask? (:flags ~binding) ~mask))
 
@@ -117,34 +117,45 @@
      type ;; the type, if known
      expansion-path]) ;; path to the macro that was expanded
 
-(def null-CompileTimeBinding (map->CompileTimeBinding {}))
+(def null-CompileTimeBinding (->CompileTimeBinding 0 nil nil nil))
 
-(defn check-flags [flags location]
-  (when (and (ctb-mask? flags :nonlocal) (ctb-mask? flags :global))
-    ($syntax-error location "Can't declare a variable both nonlocal and global"))
-  (when (ctb-mask? flags :forwarded)
-    (let [declname (ctb-bit-name flags :forwarded)]
-      (when (ctb-mask? flags :defined)
-        ($syntax-error location "Can't declare %a a %a" [declname (ctb-bit-name flags :defined)]))
-      (when (ctb-mask? flags :annotated)
-        ($syntax-error location "Can't annotate a %a variable as %a" [declname (ctb-bit-name flags :annotated)]))
-      (when (ctb-mask? flags :macro)
-        ($syntax-error location "Can't define a %a variable as a macro" [declname]))))
-  (let [defined (ctb-mask flags :defined)]
-    (when (pos? defined)
-      (when-not (= defined (first-bit defined))
-        ($syntax-error location "A variable can't be both %a and %a" (take 2 (ctb-bit-names defined))))
-      (when (ctb-mask? flags :macro)
-        ($syntax-error location "A variable can't be both %a and %a"
-                       [(ctb-bit-name defined) (ctb-bit-name flags :macro)]))))
-  (when (ctb-mask? flags :target) ;; restrictions not in Python
+(defn check-flags [new-flags old-flags toplevel? location]
+  (let [flags (bit-or new-flags old-flags)]
     (when (ctb-mask? flags :forwarded)
-      ($syntax-error location "Can't bind a %a variable" [(ctb-bit-name flags :forwarded)]))
-    (when (ctb-mask? flags :macro)
-      ($syntax-error location "A variable can't be both bound and defined as a macro" [(ctb-bit-name flags :forwarded)])))
-  flags)
+      (when toplevel?
+        ($syntax-error location "can't declare variable %a at the top-level"
+                       [:declaration (ctb-bit-name flags :forwarded)]))
+      (when (ctb-mask? new-flags :forwarded)
+        (when (ctb-mask? old-flags :forwarded)
+          ($syntax-error location "Variable declared %a was already declared %a previously"
+                         [:new (ctb-bit-name new-flags :forwarded) :old (ctb-bit-name old-flags :forwarded)]))
+        (when (ctb-mask? old-flags (or :used :target))
+          ($syntax-error location "Variable declared %a was already used before"
+                         [:new (ctb-bit-name new-flags :forwarded)])))
+      (when (and (ctb-mask? flags :nonlocal) (ctb-mask? flags :global))
+        ($syntax-error location "Can't declare a variable both nonlocal and global"))
+      (let [declname (ctb-bit-name flags :forwarded)]
+        (when (ctb-mask? flags :defined)
+          ($syntax-error location "Can't declare %a a %a" [declname (ctb-bit-name flags :defined)]))
+        (when (ctb-mask? flags :annotated)
+          ($syntax-error location "Can't annotate a %a variable as %a" [declname (ctb-bit-name flags :annotated)]))
+        (when (ctb-mask? flags :macro)
+          ($syntax-error location "Can't define a %a variable as a macro" [declname]))))
+    (let [defined (ctb-mask flags :defined)]
+      (when (pos? defined)
+        (when-not (= defined (first-bit defined))
+          ($syntax-error location "A variable can't be both %a and %a" (take 2 (ctb-bit-names defined))))
+        (when (ctb-mask? flags :macro)
+          ($syntax-error location "A variable can't be both %a and %a"
+                         [(ctb-bit-name defined) (ctb-bit-name flags :macro)]))))
+    (when (ctb-mask? flags :target) ;; restrictions not in Python
+      (when (ctb-mask? flags :forwarded)
+        ($syntax-error location "Can't bind a %a variable" [(ctb-bit-name flags :forwarded)]))
+      (when (ctb-mask? flags :macro)
+        ($syntax-error location "A variable can't be both bound and defined as a macro" [(ctb-bit-name flags :forwarded)])))
+    flags))
 
-(defn -compile-time-var [lexical-scope toplevel-scope name effect location levels-up nonlocal?]
+(defn -compile-time-effect [lexical-scope toplevel-scope name effect location levels-up nonlocal?]
   (let [;; The current scope
         scope (or lexical-scope toplevel-scope)
         ;; Is it the top-level scope?
@@ -156,19 +167,18 @@
                               (not (ctb-flags? binding (or :annotated :forwarded :defined :used))))
         ;; Add a synthetic effect for variables that are assigned before they are used.
         effect2 (if bound-before-use (bit-or effect (ctb-mask :bound-before-use)) effect)
-        ;; Is this effect relevant to the local scope only?
-        ;; excludes :target :bound-before-use :used :found
+        ;; New flags for the binding
+        new-flags (check-flags effect2 (:flags binding) toplevel? location)
+        ;; Is this effect relevant to the local scope only? excludes :target :used
         local-effect? (ctb-mask? effect2 (or :annotated :forwarded :defined :macro :bound-before-use))
         ;; Is this scope the one that defines the current variable?
         found? (or toplevel? local-effect?
                    (ctb-flags? binding (or :annotated :defined :macro))
-                   (and (ctb-flags? binding :target) (not (ctb-flags? binding :forwarded))))
-        ;; New flags for the binding
-        new-flags (check-flags effect2 location)]
+                   (and (ctb-flags? binding :target) (not (ctb-flags? binding :forwarded))))]
     (letfn [(new-binding [path found-binding expanded?]
               (if expanded?
                 (if (ctb-flags? binding :expanded)
-                  (if (= (:expansion-path binding) path)
+                  (if (or (pos? levels-up) (= (:expansion-path binding) path))
                     (assoc binding :flags new-flags)
                     ($syntax-error location "variable was previously expanded from a different source"))
                   (assoc binding
@@ -182,7 +192,7 @@
             (if toplevel?
               (let [path [:global name]
                     new-binding (new-binding path binding expanded?)]
-                [nil (->CompileTimeScope (new-bindings new-binding)) path new-binding])
+                [nil (->CompileTimeScope (new-bindings new-binding) nil) path new-binding])
               (let [path (if (zero? levels-up) [:local name] [:lexical levels-up name])
                     new-binding (new-binding path binding expanded?)]
                 [(->CompileTimeScope (new-bindings new-binding) (:parent lexical-scope)) toplevel-scope path new-binding])))
@@ -194,13 +204,13 @@
                 (cond
                  ;; If the variable wasn't declared, go to the next scope.
                  (not (ctb-mask? new-flags :global))
-                 (-compile-time-var (:parent lexical-scope) toplevel-scope name up-effect location
-                                    (inc levels-up) (or nonlocal? (ctb-flags? new-flags :nonlocal)))
+                 (-compile-time-effect (:parent lexical-scope) toplevel-scope name up-effect location
+                                       (inc levels-up) (or nonlocal? (ctb-flags? new-flags :nonlocal)))
                  ;; If the variable was declared global, go straight to top-level scope.
                  nonlocal?
                  ($syntax-error location "variable declared nonlocal but resolves to global")
                  :else
-                 (-compile-time-var nil toplevel-scope name up-effect location -1 false))
+                 (-compile-time-effect nil toplevel-scope name up-effect location -1 false))
                 ;; Is this a macro-expansion?
                 expanded? (ctb-flags? up-binding :macro)
                 new-binding (new-binding path up-binding expanded?)
@@ -208,7 +218,7 @@
             [(->CompileTimeScope new-bindings (:parent up-lexical-scope)) up-toplevel-scope
              path new-binding])))))
 
-(defn compile-time-var
+(defn compile-time-effect
   "Given an environment, a variable name, and an effect on that variable,
 lookup the variable by name, modify the environment to account for the effect, and
 return a vector [updated-environment path binding] of the updated environment,
@@ -222,7 +232,8 @@ An effect can be nil (no meta-modification), :global or :nonlocal (declaration),
 :call-reference, :decorator-reference, :with-reference, :modify-reference ( +=, etc.)"
   [environment name effect location]
   (let [[lexical-scope toplevel-scope path binding]
-        (-compile-time-var (:lexical-scope environment) (:toplevel-scope environment) name effect location 0 false)]
+        (-compile-time-effect (:lexical-scope environment) (:toplevel-scope environment)
+                              name (+ctb-bits+ effect) location 0 false)]
     [(->CompileTimeEnvironment lexical-scope toplevel-scope) path binding]))
 
 ;;; Initial global bindings
@@ -242,3 +253,5 @@ An effect can be nil (no meta-modification), :global or :nonlocal (declaration),
 (defn initial-compile-time-globals []
   (compile-time-bindings-for-known-constants @initial-globals))
 
+(defn initial-compile-time-environment []
+  (toplevel-compile-time-environment (initial-compile-time-globals)))
