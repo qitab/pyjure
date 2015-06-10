@@ -52,3 +52,5 @@ FIXME
 Copyright © 2014 Google, Inc
 
 Distributed under the Apache License version 2.0.
+
+Disclaimer: although written by a Google employee, this software is not supported by Google.

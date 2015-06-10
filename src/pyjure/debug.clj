@@ -8,7 +8,7 @@
 
 (reexport clojure.repl apropos pst)
 (reexport-macro clojure.repl doc)
-(reexport-macro clojure.tools.trace trace untrace)
+(reexport-macro clojure.tools.trace trace untrace trace-ns untrace-ns)
 
 (reexport-deferred pyjure.core
   pyjure to-reader position-stream lex parse desugar clarify cleanup analyze-continuations clojurify)

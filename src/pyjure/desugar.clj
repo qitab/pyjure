@@ -59,6 +59,15 @@
 ;; :bindings a map from strings to compile-time-bindings.
 ;; :parent a parent environment for lookups
 
+
+(defrecord DesugarEnvironment [environment suites])
+
+(defn initial-desugar-environment []
+  (->DesugarEnvironment (initial-compile-time-environment) []))
+
+
+
+
 (defn name? [n]
   "Is n a qualified pyjure name? i.e. a non-empty vector of strings"
   (and (vector? n) (every? string? n) (pos? (count n))))
@@ -229,19 +238,21 @@ return an expanded expression to compute said name"
   ([] (&push-suite []))
   ([s] (fn [E] (let [r (:suites E)] [nil (assoc E :suites (cons s r))]))))
 
-(defn &pop-suite []
-  (fn [E] (let [s (:suites E)] [(first s) (assoc E :suites (rest s))])))
+(defn &pop-suite [E] (let [s (:suites E)] [(first s) (assoc E :suites (rest s))]))
+
+(defn &flush-suite [E] (let [s (:suites E)] [(first s) (assoc E :suites (cons [] (rest s)))]))
 
 (defn &desugar-suite
-  ([xs x] (fn [E]
+  ([x xs] (fn [E]
             (let [xs (concat xs (first (:suites E)))]
-              (if (empty? xs) (&return nil)
-                  (let [[fst & rst] xs]
-                    ((&let [a (&desugar fst)
-                            d (&desugar-suite x)]
-                           (cons-suite x a d))
-                     (update-in E [:suites] #(cons rst (rest %)))))))))
-  ([x] (&desugar-suite [])))
+              (if (empty? xs)
+                [nil (update-in E [:suites] #(cons nil (rest %)))]
+                (let [[fst & rst] xs]
+                  ((&let [a (&desugar fst)
+                          d (&desugar-suite x)]
+                         (cons-suite x a d))
+                   (update-in E [:suites] #(cons rst (rest %)))))))))
+  ([x] (&desugar-suite x '())))
 
 (defn &expand-macro [form expander] (&bind #(expander form %) &desugar))
 (defn &maybe-expand-macro [form expander else]
@@ -254,6 +265,9 @@ return an expanded expression to compute said name"
     (match [x]
       [nil] &nil
 
+      [[':id name]] ;; TODO: handle lexical bindings in macro environment
+      (&let [mac (&macro :referenced x) * (&maybe-expand-macro x mac #(&return x))])
+
       [[':call fun args]]
       (&maybe-expand-macro
        x (&macro :call-referenced fun)
@@ -261,10 +275,6 @@ return an expanded expression to compute said name"
                args (&desugar-args args)]
               (v :call fun args)))
 
-      [[':id name]] ;; TODO: handle lexical bindings in macro environment
-      (&maybe-expand-macro
-       x (&macro :referenced x)
-       #(&return x))
       [[':def name args return-type body decorators]]
       (&expand-decorator x
        #(&let [args (&desugar-args args)
@@ -287,10 +297,10 @@ return an expanded expression to compute said name"
 
       [[':pass]] (&desugar (v :None)) ;; distinguish from an empty :suite, so it can break letfn
 
-      [[':suite & xs]] (&desugar-suite xs x)
+      [[':suite & xs]] (&desugar-suite x xs)
 
       [[':module & xs]] ;; keep it special, but delegate to suite
-      (&let [s (&desugar-suite xs x)] (v :module s))
+      (&let [s (&desugar-suite x xs)] (v :module s))
 
       ;; :builtin is for recursively desugared code.
       ;; :lt :gt :eq :ge :le :ne :in :is :not-in :is_not are transformed into builtin's as well.
@@ -443,8 +453,6 @@ return an expanded expression to compute said name"
 (defn &desugar* [xs] (&map &desugar xs))
 (def &desugar-args (&args &desugar))
 
-(defn initial-desugar-environment []
-  (initial-compile-time-environment))
 
 (defn desugar [program]
   (let [[x E] ((&desugar program) (initial-desugar-environment))]
