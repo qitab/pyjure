@@ -25,7 +25,7 @@
 (defn url-filename [url]
   (or (ignore-errors (-> url .toURI java.io.File.))
       (ignore-errors (-> url .getPath java.io.File.))
-      (ignore-errors (remove-prefix "file:" (.toString url)))))
+      (ignore-errors (java.io.File. (remove-prefix "file:" (.toString url))))))
 
 (defn ensure-reader-and-filename [s & options]
   (cond

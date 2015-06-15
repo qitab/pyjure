@@ -95,15 +95,17 @@ return an expanded expression to compute said name"
   (match [(namify n)]
     [([name & more] :seq)]
     (fn [E]
-      (let [[env _ binding] (compile-time-effect E name kind n)]
+      (let [CTE (:environment E)
+            [env _ binding] (compile-time-effect CTE name kind n)
+            E1 (assoc-in E [:environment] env)]
         (loop [binding binding more more]
           (if (seq more)
             (if (and (ctb-flags? binding :constant) (instance? (:value binding) pyjure.environment.CompileTimeScope))
               (recur (:value binding) (rest more))
-              [nil env])
+              [nil E1])
             (if (ctb-flags? binding :macro)
               [(:value binding) env]
-              [nil env])))))
+              [nil E1])))))
     :else (&return nil)))
 (defn &call-macro [n]
   (&let [m (&macro :call-referenced n)] (when m (fn [x] (fn [E] (m x E))))))
@@ -239,22 +241,24 @@ return an expanded expression to compute said name"
   ([s] (fn [E] (let [r (:suites E)] [nil (assoc E :suites (cons s r))]))))
 
 (defn &pop-suite [E] (let [s (:suites E)] [(first s) (assoc E :suites (rest s))]))
-
 (defn &flush-suite [E] (let [s (:suites E)] [(first s) (assoc E :suites (cons [] (rest s)))]))
 
 (defn &desugar-suite
   ([x xs] (fn [E]
-            (let [xs (concat xs (first (:suites E)))]
-              (if (empty? xs)
-                [nil (update-in E [:suites] #(cons nil (rest %)))]
-                (let [[fst & rst] xs]
-                  ((&let [a (&desugar fst)
-                          d (&desugar-suite x)]
-                         (cons-suite x a d))
-                   (update-in E [:suites] #(cons rst (rest %)))))))))
-  ([x] (&desugar-suite x '())))
+            ((&desugar-suite x)
+             (update-in E [:suites] (fn [[s & k]] (cons (concat xs s) k))))))
+  ([x] (fn [E]
+         (let [[s & k] (:suites E)]
+           (if (empty? s)
+             [nil E]
+             (let [[f & r] s]
+               ((&let [a (&desugar f)
+                       d (&desugar-suite x)]
+                      (cons-suite x a d))
+                (assoc-in E [:suites] (cons r k)))))))))
 
-(defn &expand-macro [form expander] (&bind #(expander form %) &desugar))
+(defn &expand-macro [form expander]
+  (&bind #(expander form %) &desugar))
 (defn &maybe-expand-macro [form expander else]
   (if expander (&expand-macro form expander) (else)))
 
@@ -264,6 +268,12 @@ return an expanded expression to compute said name"
           (w [& s] (i (apply vec* s)))]
     (match [x]
       [nil] &nil
+
+      [[(:or ':unbind ':constant) & _]] (&return x) ;; these two are for recursive desugaring.
+
+      [[(:or ':integer ':float ':string ':bytes ':imaginary
+             ':True ':False ':None ':Ellipsis
+             ':zero-uple ':empty-list ':empty-dict) & _]] (&return (v :constant x))
 
       [[':id name]] ;; TODO: handle lexical bindings in macro environment
       (&let [mac (&macro :referenced x) * (&maybe-expand-macro x mac #(&return x))])
@@ -286,12 +296,6 @@ return an expanded expression to compute said name"
       [[':from [dots dottedname] imports]] (do (NFN) (&return x)) ;; (NIY {:r "&desugar from"})
 
       [[':import & dotted-as-names]] (do (NFN) (&return x)) ;; TODO: process import bindings
-
-      [[(:or ':unbind ':constant) & _]] (&return x) ;; these two are for recursive desugaring.
-
-      [[(:or ':integer ':float ':string ':bytes ':imaginary
-             ':True ':False ':None ':Ellipsis
-             ':zero-uple ':empty-list ':empty-dict) & _]] (&return (v :constant x))
 
       [[(:or ':expression ':interactive) x]] (&desugar x)
 
