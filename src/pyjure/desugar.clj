@@ -279,12 +279,14 @@ return an expanded expression to compute said name"
       (&let [mac (&macro :referenced x) * (&maybe-expand-macro x mac #(&return x))])
 
       [[':call fun args]]
-      (&maybe-expand-macro
-       x (&macro :call-referenced fun)
-       #(&let [fun (&desugar fun)
-               args (&desugar-args args)]
-              (v :call fun args)))
+      (&let [mac (&macro :call-referenced fun)
+             * (&maybe-expand-macro
+                x mac
+                #(&let [fun (&desugar fun)
+                        args (&desugar-args args)]
+                       (v :call fun args)))])
 
+      ;; XXXXX HERE IS THE ACTION XXXXX
       [[':def name args return-type body decorators]]
       (&expand-decorator x
        #(&let [args (&desugar-args args)
