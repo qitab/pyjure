@@ -268,14 +268,14 @@
 (def &colon-suite (&do &colon &suite))
 (def &else (&optional (&do (&type :else) &colon-suite)))
 
-(def &function-definition
+(defn &function-definition [decorators]
   (&prefixed
-   :def &name
+   :def (&return decorators) &name
    (&paren &typed-args-list)
    (&optional (&do (&type :rarrow) &test)) ;; PEP 3107 type annotations: return-type
    &colon-suite))
-(def &class-definition
-  (&prefixed :class &name (&optional (&paren &arglist)) &colon-suite))
+(defn &class-definition [decorators]
+  (&prefixed :class (&return decorators) &name (&optional (&paren &arglist)) &colon-suite))
 
 (def &augassign
   (&type-if #{:iadd :isub :imul :idiv :ifloordiv :imod :iand :ior :ixor :irshift :ilshift :ipow}))
@@ -368,8 +368,7 @@
 
 (def &definition
   (&let [decorators (&list &decorator)
-         definition (&info (&or &class-definition &function-definition))]
-        (copy-source-info definition (conj definition (vec decorators)))))
+         * (&info (&or (&class-definition decorators) (&function-definition decorators)))]))
 
 (def &compound-statement
   (&or &if-statement &while-statement &for-statement &try-statement &with-statement &definition))

@@ -59,6 +59,7 @@
 ;; :bindings a map from strings to compile-time-bindings.
 ;; :parent a parent environment for lookups
 
+(declare &desugar &desugar* &desugar-args)
 
 (defrecord DesugarEnvironment [environment suites])
 
@@ -107,13 +108,10 @@ return an expanded expression to compute said name"
               [(:value binding) env]
               [nil E1])))))
     :else (&return nil)))
-(defn &call-macro [n]
-  (&let [m (&macro :call-referenced n)] (when m (fn [x] (fn [E] (m x E))))))
-(defn &decorator-macro [n]
-  (&let [m (&macro :decorator-referenced n)] (when m (fn [args x] (fn [E] (m args x E))))))
-(defn &with-macro [x]
-  (let [[n args] (match [x] [[':call x args]] [x args] :else [x nil])]
-    (&let [m (&macro :with-referenced n)] (when m (fn [args x] (fn [E] (m args x E)))))))
+
+(defn &maybe-expand-macro [form getter else]
+  (&bind getter (fn [mac] (if mac (&bind #(mac form %) &desugar) (else)))))
+
 
 (def gensym-counter (atom -1))
 (defn $gensym
@@ -123,8 +121,6 @@ return an expanded expression to compute said name"
   `(let ~(vec (mapcat list gensyms (map $gensym gensyms))) ~@body))
 
 ;; TODO: monadic treatment of environment?
-
-(declare &desugar &desugar* &desugar-args)
 
 (defn constint [n] [:constant [:integer (+ 0N n)]])
 
@@ -195,21 +191,19 @@ return an expanded expression to compute said name"
       (v :if (v :builtin :truth test) iftrue (expand-cond moreclauses else x))
       (or else (v :constant (v :None))))))
 
-(defn &expand-decorator [x base]
-  (let [decorators (last x)
-        name (second x)]
+(defn &expand-decorators [x base]
+  (let [[kind decorators name & args] x]
     (if (seq decorators)
-      (let [[_ deco dargs :as d] (last decorators)
-            simpler (copy-source-info x (conj (pop x) (pop decorators)))]
-        (letfn [(v [& a] (copy-source-info d (vec a)))]
-          (&let [f (&decorator-macro deco)
-                 * (if f (&bind (f dargs simpler) &desugar)
-                       (&desugar
-                        (v :suite simpler
-                           (v :bind name
-                              (v :call (let [deco (unnamify (namify deco) deco)]
-                                         (if dargs (v :call deco dargs) deco))
-                                 [[name] nil [] nil])))))])))
+      (let [[[_ deco dargs :as d] & more] decorators]
+        (&maybe-expand-macro
+         x (&macro :decorator deco)
+         #(letfn [(v [& a] (copy-source-info d (vec a)))]
+            (&desugar
+             (v :suite (copy-source-info x (update x 1 more))
+                (v :bind name
+                   (v :call (let [deco (unnamify (namify deco) deco)]
+                              (if dargs (v :call deco dargs) deco))
+                      [[name] nil [] nil])))))))
       (base))))
 
 (defn cons-suite [x head suite]
@@ -257,11 +251,6 @@ return an expanded expression to compute said name"
                       (cons-suite x a d))
                 (assoc-in E [:suites] (cons r k)))))))))
 
-(defn &expand-macro [form expander]
-  (&bind #(expander form %) &desugar))
-(defn &maybe-expand-macro [form expander else]
-  (if expander (&expand-macro form expander) (else)))
-
 (defn &desugar [x]
   (letfn [(i [f] (copy-source-info x f))
           (v [& s] (i (vec s)))
@@ -276,24 +265,27 @@ return an expanded expression to compute said name"
              ':zero-uple ':empty-list ':empty-dict) & _]] (&return (v :constant x))
 
       [[':id name]] ;; TODO: handle lexical bindings in macro environment
-      (&let [mac (&macro :referenced x) * (&maybe-expand-macro x mac #(&return x))])
+      (&maybe-expand-macro
+       x (&macro :referenced x)
+       #(&return x))
 
       [[':call fun args]]
-      (&let [mac (&macro :call-referenced fun)
-             * (&maybe-expand-macro
-                x mac
-                #(&let [fun (&desugar fun)
-                        args (&desugar-args args)]
-                       (v :call fun args)))])
+      (&maybe-expand-macro
+       x (&macro :call-referenced fun)
+       #(&let [fun (&desugar fun)
+               args (&desugar-args args)]
+              (v :call fun args)))
 
       ;; XXXXX HERE IS THE ACTION XXXXX
-      [[':def name args return-type body decorators]]
-      (&expand-decorator x
+      [[':def decorators name args return-type body]]
+      (&expand-decorators x
        #(&let [args (&desugar-args args)
                return-type (&desugar return-type)
                body (&desugar body)
                suite (&desugar-suite x)] ;; TODO: desugar in lexical environment
               (make-defn name args return-type (v :suite body (v :constant (v :None))) suite x)))
+
+
 
       [[':from [dots dottedname] imports]] (do (NFN) (&return x)) ;; (NIY {:r "&desugar from"})
 
@@ -414,8 +406,8 @@ return an expanded expression to compute said name"
                               else)))))]
          (if finally (v :unwind-protect handled finally) handled)))
 
-      [[':class name args body decorators]]
-      (&expand-decorator x ;; TODO? recursively add a @method decorator to all function definitions?
+      [[':class decorators name args body]]
+      (&expand-decorators x ;; TODO? recursively add a @method decorator to all function definitions?
        #(&let [args (&desugar-args args)
                body (&desugar body)]
               (v :class name args body)))
@@ -432,27 +424,27 @@ return an expanded expression to compute said name"
         [[ctxmgr target] & more]
         (let [simpler (v :with more body)]
           (letfn [(c [& a] (copy-source-info ctxmgr (vec a)))]
-            (&let [f (&with-macro ctxmgr)
-                   * (if f (&bind (f simpler) &desugar)
-                         (with-gensyms [mgr exception-type exception traceback]
-                           (&desugar
-                            (c :suite
-                               (c :bind mgr ctxmgr)
-                               (c :bind exception-type (c :None))
-                               (c :bind exception (c :None))
-                               (c :bind traceback (c :None))
-                               (let [enter (c :call (c :attribute mgr (c :id "__enter__"))
-                                              [[] nil [] nil])]
-                                 (if target (c :assign [target] enter) enter))
-                               (c :try simpler
-                                  [(c :except nil nil
-                                      (c :assign [(c :tuple exception-type exception traceback)]
-                                         (c :builtin :exc-info)))]
-                                  nil
-                                  (c :suite
-                                     (c :call (c :attribute mgr (c :id "__exit__"))
-                                        [[exception-type exception traceback] nil [] nil])
-                                     (c :del exception-type exception traceback)))))))]))))
+            (&maybe-expand-macro
+             x (&macro :with ctxmgr)
+             #(with-gensyms [mgr exception-type exception traceback]
+                (&desugar
+                 (c :suite
+                    (c :bind mgr ctxmgr)
+                    (c :bind exception-type (c :None))
+                    (c :bind exception (c :None))
+                    (c :bind traceback (c :None))
+                    (let [enter (c :call (c :attribute mgr (c :id "__enter__"))
+                                   [[] nil [] nil])]
+                      (if target (c :assign [target] enter) enter))
+                    (c :try simpler
+                       [(c :except nil nil
+                           (c :assign [(c :tuple exception-type exception traceback)]
+                              (c :builtin :exc-info)))]
+                       nil
+                       (c :suite
+                          (c :call (c :attribute mgr (c :id "__exit__"))
+                             [[exception-type exception traceback] nil [] nil])
+                          (c :del exception-type exception traceback))))))))))
 
       :else ($syntax-error x "Unrecognized form %s"))))
 
