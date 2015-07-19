@@ -1,8 +1,10 @@
 (ns pyjure.debug
-  (:use [clojure.pprint :only [cl-format]]
-        [pyjure.utilities])
-  (:require [clojure.repl]
-            [clojure.tools.trace]))
+  (:use
+   [clojure.pprint :only [cl-format]]
+   [pyjure.utilities])
+  (:require
+   [clojure.repl]
+   [clojure.tools.trace]))
 
 ;; debugging utilities while developing pyjure
 

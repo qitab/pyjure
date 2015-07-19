@@ -1,23 +1,26 @@
 ;; pyjure.core: this file just combines together all the compilation passes.
 (ns pyjure.core
-  (:use [clojure.tools.trace]
-        ;;[clojure.tools.nrepl]
-        [clojure.repl]
-        [clojure.test])
-  ;;; Our passes, in order:
-  (:require [pyjure.utilities :as utilities]
-            [leijure.delta-position :as position]
-            [pyjure.lexer :as lexer]
-            [pyjure.parser :as parser]
-            [pyjure.desugar :as desugar]
-            [pyjure.clarification :as clarification]
-            [pyjure.cleanup :as cleanup]
-            [pyjure.anormalization :as anormalization]
-            [pyjure.continuation-analysis :as continuation-analysis]
-            [pyjure.effect-analysis :as effect-analysis]
-            [pyjure.clojurifier :as clojurifier]
-            [pyjure.eval :as eval]
-            [pyjure.user :as user]))
+  (:use
+   [clojure.repl]
+   [clojure.test]
+   [clojure.tools.nrepl]
+   [clojure.tools.trace])
+  (:require
+   ;; Utilities
+   [leijure.delta-position :as position]
+   [pyjure.utilities :as utilities]
+   ;; Our passes, in order:
+   [pyjure.lexer :as lexer]
+   [pyjure.parser :as parser]
+   [pyjure.desugar :as desugar]
+   [pyjure.clarification :as clarification]
+   [pyjure.cleanup :as cleanup]
+   [pyjure.anormalization :as anormalization]
+   [pyjure.continuation-analysis :as continuation-analysis]
+   [pyjure.effect-analysis :as effect-analysis]
+   [pyjure.clojurifier :as clojurifier]
+   [pyjure.eval :as eval]
+   [pyjure.user :as user]))
 
 (def passes
   [;; * → [reader:java.io.Reader filename:String]
@@ -33,6 +36,10 @@
 
    ;; → AST: nested ^{:source-info Info} [type:keyword & data:*]
    :parse #'parser/parse
+
+   ;; TODO: a pass to process imports, so dependencies can be statically traversed, early, before any evaluation.
+   ;; Or should that be interspersed with desugaring, so that macros may expand into imports,
+   ;; at the risk of macros having "interesting" side-effects interfering with dependencies?
 
    ;; → AST1: smaller, desugared language, with macros expanded.
    :desugar #'desugar/desugar

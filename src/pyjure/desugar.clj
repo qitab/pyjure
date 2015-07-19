@@ -285,11 +285,9 @@ return an expanded expression to compute said name"
                suite (&desugar-suite x)] ;; TODO: desugar in lexical environment
               (make-defn name args return-type (v :suite body (v :constant (v :None))) suite x)))
 
+      [[':from [dots dottedname] imports]] (do (NFN :from) (&return x)) ;; (NIY {:r "&desugar from"})
 
-
-      [[':from [dots dottedname] imports]] (do (NFN) (&return x)) ;; (NIY {:r "&desugar from"})
-
-      [[':import & dotted-as-names]] (do (NFN) (&return x)) ;; TODO: process import bindings
+      [[':import & dotted-as-names]] (do (NFN :import) (&return x)) ;; TODO: process import bindings
 
       [[(:or ':expression ':interactive) x]] (&desugar x)
 
@@ -367,7 +365,7 @@ return an expanded expression to compute said name"
       (&desugar
        (v :builtin tag
           (v :function [[] nil [] nil] nil
-             (reduce (fn [statement comp]
+             (reduce (fn [statement comp] ;; closure-convert that, otherwise AOT complains about overlong function names.
                        (copy-source-info
                         comp
                         (match [comp]

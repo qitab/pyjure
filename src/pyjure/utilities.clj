@@ -113,21 +113,24 @@ The macro expansion has relatively low overhead in space or time."
       (into m (map (fn [[k v2]] [k (f nil v2) ]) m2)))))
 
 ;; Simple compile-time logic:
-;; :⊥ \bot(tom) means
+;; :bottom ⊥ \bot(tom) means
 ;;     at runtime "no observable branch of executable code that does anything"
 ;;     or at compile-time "no possible value returned"
-;; :⊤ \top means "anything may happen at runtime, any and all return values could be returned"
+;; :top ⊤ \top means "anything may happen at runtime, any and all return values could be returned"
 
-(defn ∨ [x y] ;; negative additive. $or --- one of several branches of execution may be taken.
-  (cond (= x :⊥) y
-        (= y :⊥) x
+(defn $or [x y]
+  ;; linear ∨, negative additive: one of several branches of execution may be taken.
+  (cond (= x :bottom) y
+        (= y :bottom) x
         (= x y) x
-        :else :⊤))
+        :else :top))
 
 (defn $true? [x] (= x true))
 (defn $false? [x] (= x false))
 (defn $unknown? [x] (= x nil))
-(defn ∧ [x y] (if (= x y) x nil)) ;; negative multiplicative, $and: whichever branch is taken will have the properties of both these branches.
+(defn $and [x y]
+  ;; linear ∧, negative multiplicative: whichever branch is taken will have the properties of both these branches.
+  (if (= x y) x nil))
 
 
 (defn $error
@@ -159,7 +162,7 @@ The macro expansion has relatively low overhead in space or time."
   (print "WARNING: ") (println (apply format fmt args)))
 
 (defn NIY [& args] (apply $error :not-implemented-yet args))
-(defn NFN [& args] nil) ;; nil for now
+(defn NFN [x] (println (format "warning: construct %s not implemented yet" x)) nil) ;; nil for now, but warn first
 
 
 

@@ -1,4 +1,4 @@
-(ns pyjure.pycall
+(ns pyjure.call
   (:use [clojure.core.match :only [match]]
         [pyjure.utilities]
         [pyjure.runtime]

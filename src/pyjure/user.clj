@@ -2,8 +2,8 @@
 (ns pyjure.user
   (:refer-clojure :include [])
   (:require [clojure.tools.trace :as trace]
-            [clojure.repl :as repl])
-  (:require [pyjure.runtime :as r]
+            [clojure.repl :as repl]
+            [pyjure.runtime :as r]
             [pyjure.utilities :as u])
   (:use [pyjure.runtime :include
          ;; (vec (filter #(= \$ (-> % name first)) (map first (ns-publics 'pyjure.runtime))))

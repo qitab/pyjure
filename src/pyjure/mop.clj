@@ -88,8 +88,8 @@
 
 (defn $get-class [x] ($get x :__class__))
 
-(defn $get-method [class name] (NFN))
-(defn $mro [class] (NIY))
+(defn $get-method [class name] (NFN '$get-method))
+(defn $mro [class] (NIY '$mro))
 
 (defn-py isinstance? [instance class]
   (<- (if-let [i? ($get class :__instancecheck__)] (i? instance))

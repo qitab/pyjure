@@ -27,6 +27,7 @@
                  ]
   :repositories {"sonatype" {:url "https://oss.sonatype.org/content/repositories/snapshots/"}}
   :resource-paths ["resources/prod"]
+  :aot :all
   :profiles {:uberjar {:aot :all}
              :dev {:resource-paths ["resources/test"]
                    :dependencies [[me.raynes/conch "0.8.0"]
