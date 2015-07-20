@@ -1,6 +1,6 @@
 (ns pyjure.cleanup
   (:use [clojure.core.match :only [match]]
-        [pyjure.debug :exclude [cleanup]]
+        [pyjure.debug]
         [pyjure.utilities]))
 
 ;; TODO? maintain a lexical environment, resolve bindings,
@@ -52,5 +52,5 @@
           ($syntax-error x "unexpected expression %s during cleanup pass"))))))
 
 
-(defn cleanup [x]
+(defn cleanup- [x]
   (c x))

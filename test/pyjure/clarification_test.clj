@@ -2,14 +2,14 @@
   (:use [clojure.test]
         [clojure.core.match :only [match]]
         [pyjure.core-test]
+        [pyjure.debug]
+        [pyjure.passes]
         [pyjure.utilities]
         [pyjure.parsing]
-        [pyjure.clarification])
-  (:require [pyjure.core :as py]))
+        [pyjure.clarification]))
 
 (deftest clarification-test
-  (comment ;; disable for now...
   (testing "Every python function scope clarification"
-    (let [x (py/desugar python-test)
-          y (clarify x)]
-      (is (= x y))))))
+    (let [x (desugar python-test)
+          y (clarify- x)]
+      (is (= x y)))))

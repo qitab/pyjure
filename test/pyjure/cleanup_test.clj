@@ -2,12 +2,12 @@
   (:use [clojure.test]
         [clojure.core.match :only [match]]
         [pyjure.core-test]
+        [pyjure.debug]
+        [pyjure.passes]
         [pyjure.utilities]
         [pyjure.parsing]
-        [pyjure.cleanup])
-  (:require [pyjure.core :as py]))
-
+        [pyjure.cleanup]))
 
 (deftest cleanup-test
   (testing "Some cleanups"
-    (is (= (py/cleanup "") [:module nil]))))
+    (is (= (cleanup "") [:module nil]))))

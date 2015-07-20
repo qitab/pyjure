@@ -177,13 +177,3 @@
   ([keys] (fn [E] [(get-in E keys) E]))
   ([keys not-found] (fn [E] [(get-in E keys not-found) E])))
 
-(defmacro &DBG [tag f & x]
-  `(let [x# ~(vec x)
-         tag# ~tag]
-     (fn [E#]
-       (print tag#) (print " => ") (prn x#)
-       (let [[v# E#] ((apply ~f x#) E#)]
-         (print tag#) (print " <= ") (prn v#)
-         [v# E#]))))
-
-

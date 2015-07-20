@@ -1,6 +1,6 @@
 (ns pyjure.effect-analysis
   (:use [clojure.core.match :only [match]]
-        [pyjure.debug :exclude [analyze-effects]]
+        [pyjure.debug]
         [pyjure.utilities]
         [pyjure.parsing]
         [pyjure.runtime]))
@@ -126,5 +126,5 @@ Problem: effects to the end of the branch vs all effects including beyond the cu
 (defn &A [x]
   (fn [E] (if (reachable? E) ((&A1 x) E) [(with-effects E x x) E])))
 
-(defn analyze-effects [x]
+(defn analyze-effects- [x]
   (first ((&A x) null-env)))

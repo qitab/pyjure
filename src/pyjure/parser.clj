@@ -1,7 +1,8 @@
 (ns pyjure.parser
   (:require [clojure.string :as str])
   (:use [clojure.core.match :only [match]]
-        [pyjure.debug :exclude [parse]]
+        [pyjure.debug]
+        [pyjure.passes]
         [pyjure.utilities]
         [pyjure.parsing]))
 
@@ -399,6 +400,6 @@
   (let [[[_ _ [file _ _]]] lexed]
     (->ParserState lexed [file [0 0] [0 0]])))
 
-(defn parse
-  ([lexed] (parse &file-input lexed))
+(defn parse-
+  ([lexed] (parse- &file-input lexed))
   ([parser lexed] (-> lexed mkParserState parser first)))

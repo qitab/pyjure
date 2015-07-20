@@ -1,6 +1,6 @@
 (ns pyjure.continuation-analysis
   (:use [clojure.core.match :only [match]]
-        [pyjure.debug :exclude [analyze-continuations]]
+        [pyjure.debug]
         [pyjure.utilities]
         [pyjure.parsing]
         [pyjure.runtime]))
@@ -154,5 +154,5 @@ Problem: effects to the end of the branch vs all effects including beyond the cu
                   (&r [:class name args body]))))
         :else ($syntax-error x "unexpected expression %s during continuation analysis pass")))]))
 
-(defn analyze-continuations [x]
+(defn analyze-continuations- [x]
   (first ((&A x) nil)))

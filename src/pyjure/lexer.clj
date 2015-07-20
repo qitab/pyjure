@@ -2,7 +2,9 @@
   (:require [leijure.delta-position :as delta]
             [clojure.string :as str]
             [clojure.set :as set])
-  (:use [pyjure.utilities]
+  (:use [pyjure.debug]
+        [pyjure.passes]
+        [pyjure.utilities]
         [pyjure.parsing]))
 
 ;; See Python 2 Documentation: https://docs.python.org/2/reference/lexical_analysis.html
@@ -302,11 +304,11 @@
 (def &python
   (&do (&repeat &logical-line) &eof &finish))
 
-(defn position-stream [[input filename]]
+(defn position-stream- [[input filename]]
   [(delta/positioned-stream input {:line-offset 1 :column-offset 0}) filename])
 
 (defn mkLexerState [[positioned-stream filename]]
   (->LexerState positioned-stream filename [0 0] () '(0) ()))
 
-(defn lex [[positioned-stream filename]]
+(defn lex- [[positioned-stream filename]]
   (first (&python (mkLexerState [positioned-stream filename]))))

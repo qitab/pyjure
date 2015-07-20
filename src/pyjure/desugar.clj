@@ -1,5 +1,6 @@
 (ns pyjure.desugar
-  (:use [pyjure.debug :exclude [desugar]]
+  (:use [pyjure.debug]
+        [pyjure.passes]
         [pyjure.utilities]
         [pyjure.parsing]
         [pyjure.environment]
@@ -65,7 +66,6 @@
 
 (defn initial-desugar-environment []
   (->DesugarEnvironment (initial-compile-time-environment) []))
-
 
 
 
@@ -196,10 +196,10 @@ return an expanded expression to compute said name"
     (if (seq decorators)
       (let [[[_ deco dargs :as d] & more] decorators]
         (&maybe-expand-macro
-         x (&macro :decorator deco)
+         x (&macro :decorator-referenced deco)
          #(letfn [(v [& a] (copy-source-info d (vec a)))]
             (&desugar
-             (v :suite (copy-source-info x (update x 1 more))
+             (v :suite (copy-source-info x (assoc x 1 more))
                 (v :bind name
                    (v :call (let [deco (unnamify (namify deco) deco)]
                               (if dargs (v :call deco dargs) deco))
@@ -251,6 +251,16 @@ return an expanded expression to compute said name"
                       (cons-suite x a d))
                 (assoc-in E [:suites] (cons r k)))))))))
 
+(defn uncomprehend [x]
+  (fn [statement comp]
+    (copy-source-info
+     comp
+     (match [comp]
+       [[':comp-for target generator]] [:for target generator statement nil]
+       [[':comp-if test]] [:if-expr test statement nil]
+       :else ($syntax-error x "Not a valid comprehension %s"
+                            [:expr :comp] {:expr x :comp comp})))))
+
 (defn &desugar [x]
   (letfn [(i [f] (copy-source-info x f))
           (v [& s] (i (vec s)))
@@ -281,9 +291,8 @@ return an expanded expression to compute said name"
       (&expand-decorators x
        #(&let [args (&desugar-args args)
                return-type (&desugar return-type)
-               body (&desugar body)
-               suite (&desugar-suite x)] ;; TODO: desugar in lexical environment
-              (make-defn name args return-type (v :suite body (v :constant (v :None))) suite x)))
+               body (&desugar body)]
+              (v :bind name (v :function args return-type (v :suite body (v :constant (v :None)))))))
 
       [[':from [dots dottedname] imports]] (do (NFN :from) (&return x)) ;; (NIY {:r "&desugar from"})
 
@@ -345,7 +354,7 @@ return an expanded expression to compute said name"
 
       [[':cond clauses else]] (&desugar (expand-cond clauses else x))
 
-      [[':lambda args body]] (with-gensyms [fn] (&desugar (v :suite (v :def fn args nil body) fn)))
+      [[':lambda args body]] (with-gensyms [fn] (&desugar (v :suite (v :def [] fn args nil body) fn)))
 
       [[':augassign target iop arg]]
       (&desugar (expand-target target (v :builtin iop target arg) :augassign x))
@@ -361,19 +370,14 @@ return an expanded expression to compute said name"
                                       (map #(expand-target % g :assign x) (reverse targets))))]
                                (v :suite (v :bind g val) y))))])
 
+
+
       [[tag :guard #{:list-comp :dict-comp :set-comp :generator} expr gen]]
       (&desugar
        (v :builtin tag
           (v :function [[] nil [] nil] nil
-             (reduce (fn [statement comp] ;; closure-convert that, otherwise AOT complains about overlong function names.
-                       (copy-source-info
-                        comp
-                        (match [comp]
-                               [[':comp-for target generator]] [:for target generator statement nil]
-                               [[':comp-if test]] [:if-expr test statement nil]
-                               :else ($syntax-error x "Not a valid comprehension %s"
-                                                    [:expr :comp] {:expr x :comp comp}))))
-                     (v :yield expr) gen))))
+             ;; uncomprehend was factored out of here, because the nested match causes AOT to produce overlong filenames
+             (reduce (uncomprehend x) (v :yield expr) gen))))
 
       [[':try body excepts else finally]]
       (&desugar
@@ -450,6 +454,6 @@ return an expanded expression to compute said name"
 (def &desugar-args (&args &desugar))
 
 
-(defn desugar [program]
+(defn desugar- [program]
   (let [[x E] ((&desugar program) (initial-desugar-environment))]
     x))

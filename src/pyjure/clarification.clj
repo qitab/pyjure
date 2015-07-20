@@ -1,5 +1,6 @@
 (ns pyjure.clarification
   (:use [clojure.core.match :only [match]]
+        [pyjure.debug]
         [pyjure.utilities]
         [pyjure.parsing]
         [pyjure.runtime]))
@@ -141,7 +142,7 @@
 (defn &C* [xs] (&map &C xs))
 (def &Cargs (&args &C))
 
-(defn clarify [x]
+(defn clarify- [x]
   (let [[x E] ((&C x) nil)]
     (check-effects x E false)
     x))

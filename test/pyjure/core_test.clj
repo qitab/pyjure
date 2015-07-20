@@ -1,9 +1,7 @@
 (ns pyjure.core-test
   (:require [me.raynes.conch :only [programs with-programs let-programs] :as sh])
-  (:use [clojure.tools.trace]
-        [clojure.tools.nrepl]
-        [clojure.repl]
-        [clojure.test]
+  (:use [pyjure.debug]
+        [pyjure.passes]
         [pyjure.core]))
 
 (def foo (clojure.java.io/resource "pyjure/foo.py"))

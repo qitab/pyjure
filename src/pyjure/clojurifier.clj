@@ -3,7 +3,7 @@
             [pyjure.effect-analysis :as fxa]
             [pyjure.debug :as sky])
   (:use [clojure.core.match :only [match]]
-        [pyjure.debug :exclude [clojurify]]
+        [pyjure.debug]
         [pyjure.utilities]
         [pyjure.parsing]
         [pyjure.runtime]))
@@ -194,7 +194,7 @@
 (defn &C* [xs] (&map &C xs))
 (def &Cargs (&args &C))
 
-(defn clojurify [x]
+(defn clojurify- [x]
   (let [[x E] ((&C x)
                (sort-effects
                 ;; or should it be (:capturing (meta x)) ?

@@ -1,15 +1,15 @@
 (ns pyjure.parser-test
   (:use [clojure.test]
-        [clojure.core.match :only [match]]
         [pyjure.core-test]
+        [pyjure.core]
+        [pyjure.debug]
+        [pyjure.passes]
         [pyjure.utilities]
         [pyjure.parsing]
-        [pyjure.parser])
-  (:require [pyjure.core :as py]
-            [clojure.string :as str]))
+        [pyjure.parser]))
 
-(defn test-parse [input] (tryf #(py/parse input)))
-(defn test& [l input] (tryf #(l (mkParserState (py/lex input)))))
+(defn test-parse [input] (tryf #(parse input)))
+(defn test& [l input] (tryf #(l (mkParserState (lex input)))))
 
 (deftest parser-test
   (testing "parser smoketest"

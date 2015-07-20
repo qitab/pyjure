@@ -1,7 +1,7 @@
-(ns pyjure.utilities
-  [:require [clojure.repl]])
-
 ;; Miscellaneous general purpose utilities.
+(ns pyjure.utilities
+  (:use [pyjure.debug]))
+
 ;; TODO: move them to leijure?
 ;; or to one of https://github.com/weavejester/medley or https://github.com/flatland/useful
 
@@ -44,6 +44,10 @@
        (binding [*file* filename]
          (f stream))))
 
+(defn to-reader- [s & options]
+  (apply ensure-reader-and-filename s options))
+
+
 (defn join-bytes [arrays]
   (let [sizes (map count arrays)
         sizes_r (vec (reductions + sizes))
@@ -55,7 +59,7 @@
 
 (defn tryf [fun]
   (try (fun) (catch clojure.lang.ExceptionInfo x
-               (println (.data x)) (clojure.repl/pst x) (println (.data x)) x)))
+               (println (.data x)) (pst x) (println (.data x)) x)))
 
 (defn thread-args [front S is E]
   ;; given a semantic function S, a list of inputs is, and an environment E,
@@ -71,39 +75,6 @@
 (defn update-in-multiple [record fields f & args]
   (reduce #(apply update-in % [%2] f args) record fields))
 
-(defmacro DBG [tag & exprs]
-    "debug macro for print-debugging:
-tag is typically a constant string or keyword to identify who is printing,
-but can be an arbitrary expression returning a tag to be princ'ed first;
-if the tag evaluates to falsy (false or nil), nothing is printed.
-exprs are expressions, which when the TAG was truthy are evaluated in order,
-with their source code then their return values being printed each time.
-The last expresion is *always* evaluated and its multiple values are returned,
-but its source and return values are only printed if the tag was truthy;
-previous expressions are not evaluated at all if TAG was falsy.
-The macro expansion has relatively low overhead in space or time."
-  (let [last-expr (last exprs)
-        other-exprs (butlast exprs)
-        thunk (gensym "thunk_")]
-    `(let [tag# ~tag]
-       (letfn ~(if exprs `[(~'thunk [] ~last-expr)] [])
-         (if tag#
-             (DBG-helper tag#
-                         [~@(map #(do `['~% (fn [] ~%)]) other-exprs)]
-                         ~(when exprs `['~last-expr ~'thunk]))
-             ~(if exprs `(~'thunk) nil))))))
-
-(defn DBG-helper [tag xts last-xt]
-  ;; Helper for the above debugging macro
-  (letfn [(foo [[expression thunk]]
-            (print "  ") (pr expression) (print " => ")
-            (let [val (thunk)]
-              (prn val)
-              val))]
-    (println tag)
-    (doseq [xt xts] (foo xt))
-    (when last-xt (foo last-xt))))
-
 (defn mapmap [f m] (into {} (for [[k v] m] [k (f v)])))
 (defn mapcombine [f m1 m2]
   (loop [m {} m1 (seq m1) m2 m2]
@@ -111,26 +82,6 @@ The macro expansion has relatively low overhead in space or time."
       (let [[[k v1] & r1] m1 v2 (get m2 k) r2 (dissoc m2 k)]
         (recur (assoc m k (f v1 v2)) r1 r2))
       (into m (map (fn [[k v2]] [k (f nil v2) ]) m2)))))
-
-;; Simple compile-time logic:
-;; :bottom ⊥ \bot(tom) means
-;;     at runtime "no observable branch of executable code that does anything"
-;;     or at compile-time "no possible value returned"
-;; :top ⊤ \top means "anything may happen at runtime, any and all return values could be returned"
-
-(defn $or [x y]
-  ;; linear ∨, negative additive: one of several branches of execution may be taken.
-  (cond (= x :bottom) y
-        (= y :bottom) x
-        (= x y) x
-        :else :top))
-
-(defn $true? [x] (= x true))
-(defn $false? [x] (= x false))
-(defn $unknown? [x] (= x nil))
-(defn $and [x y]
-  ;; linear ∧, negative multiplicative: whichever branch is taken will have the properties of both these branches.
-  (if (= x y) x nil))
 
 
 (defn $error
@@ -299,7 +250,6 @@ The macro expansion has relatively low overhead in space or time."
   (when c (if-let [n (uppercase-letter? c)] (char (+ n (int \a))) c)))
 
 
-
 (defn boolean-number
   "given a list of generalized booleans as arguments, what integer do they encode in little-endian binary?"
   ([a] (if a 1 0))
@@ -311,14 +261,4 @@ The macro expansion has relatively low overhead in space or time."
      (loop [l (vec* a b c d e f g) x 1 s 0]
        (if (seq l) (let [[h & t] l] (recur t (+ x x) (if h (+ s x) s))) s))))
 
-
-;;; Reexporting things from another namespace
-(defmacro reexport [ns & xs]
-  `(do ~@(map #(do `(def ~% ~(symbol (str ns) (str %)))) xs)))
-(defmacro reexport-macro [ns & xs]
-  `(do ~@(map #(do `(defmacro ~% [& a#] `(~'~(symbol (str ns) (str %)) ~@a#))) xs)))
-(defmacro reexport-deferred [ns & xs]
-  `(do ~@(map #(do `(defn ~% [& a#] (apply (find-var (symbol ~(str ns) ~(str %))) a#))) xs)))
-(defmacro reexport-macro-deferred [ns & xs]
-  `(do ~@(map #(do `(defmacro ~% [& a#] `(~(symbol ~(str ns) ~(str %)) ~@a#))) xs)))
 

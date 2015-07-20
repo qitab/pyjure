@@ -1,19 +1,17 @@
 (ns pyjure.lexer-test
-  (:require [leijure.delta-position :as delta]
-            [clojure.string :as str]
-            [clojure.set :as set]
-            [pyjure.core :as py])
-  (:use [pyjure.core-test]
+  (:use [clojure.test]
+        [pyjure.core-test]
+        [pyjure.debug]
+        [pyjure.passes]
         [pyjure.utilities]
         [pyjure.parsing]
-        [pyjure.lexer]
-        [clojure.test]))
+        [pyjure.lexer]))
 
 (defn simplify [a] {:pre (vector? a)} (if (= (count a) 1) (first a) a))
-(defn test-lex* [input] (tryf #(py/lex input)))
+(defn test-lex* [input] (tryf #(lex input)))
 (defn test-lex [input] (map simplify (test-lex* input)))
 (defn test-lex-position [input] (map #(:source-info (meta %)) (test-lex* input)))
-(defn test& [l input] (tryf #(l (mkLexerState (py/position-stream input)))))
+(defn test& [l input] (tryf #(l (mkLexerState (position-stream input)))))
 
 (deftest lexer-test
   (testing "lexer positions"
