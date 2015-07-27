@@ -7,20 +7,19 @@
    [clojure.tools.trace]))
 
 ;;; Reexporting things from another namespace
-(defmacro reexport [ns & xs]
-  `(do ~@(map #(do `(def ~% ~(symbol (str ns) (str %)))) xs)))
-(defmacro reexport-macro [ns & xs]
-  `(do ~@(map #(do `(defmacro ~% [& a#] `(~'~(symbol (str ns) (str %)) ~@a#))) xs)))
-(defmacro reexport-deferred [ns & xs]
-  `(do ~@(map #(do `(defn ~% [& a#] (apply (find-var (symbol ~(str ns) ~(str %))) a#))) xs)))
-(defmacro reexport-macro-deferred [ns & xs]
-  `(do ~@(map #(do `(defmacro ~% [& a#] `(~(symbol ~(str ns) ~(str %)) ~@a#))) xs)))
-
+(defmacro reexport [ns prefix suffix & xs]
+  `(do ~@(map #(do `(def ~(symbol (str prefix % suffix)) ~(symbol (str ns) (str %)))) xs)))
+(defmacro reexport-macro [ns prefix suffix & xs]
+  `(do ~@(map #(do `(defmacro ~(symbol (str prefix % suffix)) [& a#] `(~'~(symbol (str ns) (str %)) ~@a#))) xs)))
+(defmacro reexport-deferred [ns prefix suffix & xs]
+  `(do ~@(map #(do `(defn ~(symbol (str prefix % suffix)) [& a#] (apply (find-var (symbol ~(str ns) ~(str %))) a#))) xs)))
+(defmacro reexport-macro-deferred [ns prefix suffix & xs]
+  `(do ~@(map #(do `(defmacro ~(symbol (str prefix % suffix)) [& a#] `(~(symbol ~(str ns) ~(str %)) ~@a#))) xs)))
 
 ;;; Reexport the usual helpers
-(reexport clojure.repl apropos pst)
-(reexport-macro clojure.repl doc)
-(reexport-macro clojure.tools.trace trace untrace trace-ns untrace-ns)
+(reexport clojure.repl "%" "" apropos pst)
+(reexport-macro clojure.repl "%" "" doc)
+(reexport-macro clojure.tools.trace "%" "" trace untrace trace-ns untrace-ns)
 
 ;;; More tracing
 (defn tracing [name f]

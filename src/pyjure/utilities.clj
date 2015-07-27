@@ -107,13 +107,16 @@
   ([x fmt] ($syntax-error x fmt [:expr] {}))
   ([x] ($syntax-error x nil nil {})))
 
+(def ^:dynamic *warnings* false)
+
 (defn $warning [tag fmt & args]
   ;; ignore tag for now, and always print
   ;; TODO: pretty print source location if available
-  (print "WARNING: ") (println (apply format fmt args)))
+  (when *warnings*
+    (print "WARNING: ") (println (apply format fmt args))))
 
 (defn NIY [& args] (apply $error :not-implemented-yet args))
-(defn NFN [x] (println (format "warning: construct %s not implemented yet" x)) nil) ;; nil for now, but warn first
+(defn NFN [x] ($warning true "warning: construct %s not implemented yet" x) nil) ;; nil for now, but warn first
 
 
 

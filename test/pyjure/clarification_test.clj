@@ -1,6 +1,7 @@
 (ns pyjure.clarification-test
   (:use [clojure.test]
         [clojure.core.match :only [match]]
+        [pyjure.core]
         [pyjure.core-test]
         [pyjure.debug]
         [pyjure.passes]
